@@ -2,7 +2,7 @@
   "name": "GameSystems.Abilities.PlayModeTests",
   "references": [
     "GameSystems.Abilities",
-    "GameSystems.Actions",
+    "GameSystems.Sequencing",
     "GameSystems.Hooks",
     "GameSystems.Playables",
     "GameSystems.Feedbacks",

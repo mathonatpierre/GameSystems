@@ -1,5 +1,5 @@
 using System;
-using GameSystems.Actions;
+using GameSystems.Sequencing;
 
 namespace GameSystems.Abilities.Actions
 {

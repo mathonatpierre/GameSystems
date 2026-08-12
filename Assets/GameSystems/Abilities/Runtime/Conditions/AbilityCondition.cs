@@ -1,7 +1,7 @@
 using System;
-using GameSystems.Actions;
+using GameSystems.Sequencing;
 
-namespace GameSystems.Abilities.Embedded
+namespace GameSystems.Abilities.Conditions
 {
     [Serializable]
     public abstract class AbilityCondition : GameCondition

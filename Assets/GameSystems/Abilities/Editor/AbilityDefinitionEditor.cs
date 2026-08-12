@@ -34,7 +34,7 @@ namespace GameSystems.Abilities.Editor
                 GameSystemsInspectorUI.Pill(ability.Category.ToString(), AbilityEditorStyles.CategoryColor(ability.Category));
                 EditorGUILayout.LabelField(ability.name, EditorStyles.boldLabel);
                 GUILayout.FlexibleSpace();
-                EditorGUILayout.LabelField(ability.ActivationPolicy.ToString(), GameSystemsInspectorUI.SmallMutedStyle, GUILayout.Width(76f));
+                EditorGUILayout.LabelField(ability.AutoStart ? "Auto Start" : "Requested", GameSystemsInspectorUI.SmallMutedStyle, GUILayout.Width(76f));
                 EditorGUILayout.LabelField($"P {ability.Priority}", GameSystemsInspectorUI.SmallMutedStyle, GUILayout.Width(36f));
             }
         }
@@ -42,7 +42,7 @@ namespace GameSystems.Abilities.Editor
         void DrawScheduling()
         {
             if (!GameSystemsInspectorUI.Foldout(ref showScheduling, "Scheduling")) return;
-            Draw("activationPolicy");
+            Draw("autoStart");
             Draw("priority");
             Draw("cooldown");
             Draw("requiredAuthority");
@@ -102,7 +102,7 @@ namespace GameSystems.Abilities.Editor
         static bool IsBaseProperty(string propertyPath)
         {
             return propertyPath is "m_Script" or
-                "activationPolicy" or
+                "autoStart" or
                 "priority" or
                 "cooldown" or
                 "requiredAuthority" or

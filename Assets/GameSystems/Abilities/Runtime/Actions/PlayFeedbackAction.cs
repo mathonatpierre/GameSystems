@@ -1,6 +1,6 @@
 using System;
 using GameSystems.Abilities;
-using GameSystems.Actions;
+using GameSystems.Sequencing;
 using GameSystems.Feedbacks;
 using UnityEngine;
 

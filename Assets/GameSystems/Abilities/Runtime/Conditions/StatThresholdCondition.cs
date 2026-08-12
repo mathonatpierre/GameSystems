@@ -2,7 +2,7 @@ using System;
 using GameSystems.Stats;
 using UnityEngine;
 
-namespace GameSystems.Abilities.Embedded
+namespace GameSystems.Abilities.Conditions
 {
     [Serializable]
     public sealed class StatThresholdCondition : AbilityCondition

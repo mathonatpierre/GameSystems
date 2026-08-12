@@ -1,9 +1,0 @@
-{
-  "name": "GameSystems.Actions.Editor",
-  "rootNamespace": "GameSystems.Actions.Editor",
-  "references": [
-    "GameSystems.Actions"
-  ],
-  "includePlatforms": ["Editor"],
-  "autoReferenced": true
-}

@@ -1,5 +1,5 @@
 using System;
-using GameSystems.Actions;
+using GameSystems.Sequencing;
 using UnityEngine.SceneManagement;
 
 namespace GameSystems.Abilities.Actions

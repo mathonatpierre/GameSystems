@@ -8,8 +8,7 @@ namespace GameSystems.Abilities
     public abstract class AbilityDefinition : ScriptableObject
     {
         [Header("Scheduling")]
-        [FormerlySerializedAs("autoStart")]
-        [SerializeField] AbilityActivationPolicy activationPolicy;
+        [SerializeField] bool autoStart;
         [SerializeField] int priority;
         [SerializeField, Min(0f)] float cooldown;
         [SerializeField] AbilityAuthority requiredAuthority;
@@ -27,8 +26,7 @@ namespace GameSystems.Abilities
         [SerializeField] FeedbackSequence startFeedback;
         [SerializeField] FeedbackSequence completeFeedback;
 
-        public AbilityActivationPolicy ActivationPolicy => activationPolicy;
-        public bool AutoStart => activationPolicy is AbilityActivationPolicy.Automatic or AbilityActivationPolicy.Persistent;
+        public bool AutoStart => autoStart;
         public int Priority => priority;
         public float Cooldown => cooldown;
         public AbilityAuthority RequiredAuthority => requiredAuthority;

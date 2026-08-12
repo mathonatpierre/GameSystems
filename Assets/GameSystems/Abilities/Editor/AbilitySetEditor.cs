@@ -92,7 +92,7 @@ namespace GameSystems.Abilities.Editor
                 {
                     EditorGUILayout.LabelField($"{i + 1}.", GUILayout.Width(24f));
                     EditorGUILayout.ObjectField(ability, typeof(AbilityDefinition), false);
-                    EditorGUILayout.LabelField(ability.ActivationPolicy.ToString(), GameSystemsInspectorUI.SmallMutedStyle, GUILayout.Width(72f));
+                    EditorGUILayout.LabelField(ability.AutoStart ? "Auto Start" : "Requested", GameSystemsInspectorUI.SmallMutedStyle, GUILayout.Width(72f));
                     EditorGUILayout.LabelField($"P {ability.Priority}", GameSystemsInspectorUI.SmallMutedStyle, GUILayout.Width(38f));
                     EditorGUILayout.LabelField($"{ability.Transitions.Length} trans", GameSystemsInspectorUI.SmallMutedStyle, GUILayout.Width(58f));
                 }
@@ -136,17 +136,8 @@ namespace GameSystems.Abilities.Editor
 
         static void AddCategoryWarnings(AbilityDefinition ability, List<string> warnings)
         {
-            if (ability.Category == AbilityCategory.Locomotion &&
-                ability.ActivationPolicy is not AbilityActivationPolicy.Automatic and not AbilityActivationPolicy.Persistent)
-                warnings.Add($"{ability.name}: locomotion is usually Automatic or Persistent.");
-
-            if (ability.Category == AbilityCategory.Reaction &&
-                ability.ActivationPolicy == AbilityActivationPolicy.Persistent)
-                warnings.Add($"{ability.name}: reaction is Persistent. Reactive or Manual is usually clearer.");
-
-            if (ability.Category == AbilityCategory.Ability &&
-                ability.ActivationPolicy == AbilityActivationPolicy.Persistent)
-                warnings.Add($"{ability.name}: gameplay ability is Persistent. Check that it is not locomotion.");
+            if (ability.Category == AbilityCategory.Locomotion && !ability.AutoStart)
+                warnings.Add($"{ability.name}: locomotion usually starts automatically.");
         }
 
         static void Visit(

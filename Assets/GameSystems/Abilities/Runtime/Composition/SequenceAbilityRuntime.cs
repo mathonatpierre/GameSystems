@@ -1,4 +1,4 @@
-using GameSystems.Actions;
+using GameSystems.Sequencing;
 
 namespace GameSystems.Abilities
 {

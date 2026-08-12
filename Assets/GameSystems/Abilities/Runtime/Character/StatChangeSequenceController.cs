@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using GameSystems.Actions;
+using GameSystems.Sequencing;
 using GameSystems.Stats;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;

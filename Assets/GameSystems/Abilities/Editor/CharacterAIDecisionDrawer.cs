@@ -1,6 +1,6 @@
 #if UNITY_EDITOR
-using GameSystems.Actions;
-using GameSystems.Actions.Editor;
+using GameSystems.Sequencing;
+using GameSystems.Sequencing.Editor;
 using UnityEditor;
 using UnityEngine;
 

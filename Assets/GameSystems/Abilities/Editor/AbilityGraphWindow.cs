@@ -12,7 +12,7 @@ namespace GameSystems.Abilities.Editor
         const float RowGap = 30f;
 
         readonly Dictionary<AbilityDefinition, Rect> nodeRects = new();
-        readonly Dictionary<AbilityActivationPolicy, int> policyRows = new();
+        readonly int[] columnRows = new int[2];
         AbilitySet abilitySet;
         CharacterAbilityController runtimeController;
         Vector2 scroll;
@@ -76,25 +76,26 @@ namespace GameSystems.Abilities.Editor
         void BuildLayout()
         {
             nodeRects.Clear();
-            policyRows.Clear();
+            columnRows[0] = 0;
+            columnRows[1] = 0;
             for (int i = 0; i < abilitySet.Abilities.Count; i++)
             {
                 AbilityDefinition ability = abilitySet.Abilities[i];
                 if (ability == null) continue;
-                int column = (int)ability.ActivationPolicy;
-                policyRows.TryGetValue(ability.ActivationPolicy, out int row);
+                int column = ability.AutoStart ? 0 : 1;
+                int row = columnRows[column];
                 nodeRects[ability] = new Rect(
                     24f + column * (NodeWidth + ColumnGap),
                     62f + row * (NodeHeight + RowGap),
                     NodeWidth,
                     NodeHeight);
-                policyRows[ability.ActivationPolicy] = row + 1;
+                columnRows[column] = row + 1;
             }
         }
 
         Rect CalculateContentRect()
         {
-            float width = 24f + 4f * (NodeWidth + ColumnGap);
+            float width = 24f + 2f * (NodeWidth + ColumnGap);
             float height = 180f;
             foreach (Rect rect in nodeRects.Values) height = Mathf.Max(height, rect.yMax + 40f);
             return new Rect(0f, 0f, width, height);
@@ -102,7 +103,7 @@ namespace GameSystems.Abilities.Editor
 
         void DrawColumnHeaders(float height)
         {
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 2; i++)
             {
                 float x = 24f + i * (NodeWidth + ColumnGap);
                 Rect column = new(x - 8f, 28f, NodeWidth + 16f, height - 36f);
@@ -110,7 +111,7 @@ namespace GameSystems.Abilities.Editor
                     ? new Color(.12f, .12f, .12f, .22f)
                     : new Color(.2f, .2f, .2f, .15f));
                 GUI.Label(new Rect(x, 32f, NodeWidth, 22f),
-                    ((AbilityActivationPolicy)i).ToString(), EditorStyles.boldLabel);
+                    i == 0 ? "Auto Start" : "Requested", EditorStyles.boldLabel);
             }
         }
 

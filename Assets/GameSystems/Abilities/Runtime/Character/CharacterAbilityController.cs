@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using GameSystems.Feedbacks;
-using GameSystems.Actions;
+using GameSystems.Sequencing;
 using UnityEngine;
 
 namespace GameSystems.Abilities

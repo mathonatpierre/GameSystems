@@ -4,15 +4,17 @@ Date: 2026-08-12
 
 Cleanup status: legacy character definitions, the unused locomotion animation graph, the duplicate
 horizontal movement action, the Rigidbody motor, dead state-provider types, and unused Core IDs have
-been removed. Module-specific Editor assemblies are now active. Remaining identity and namespace
-migrations are intentionally tracked below because they require serialized-content conversion.
+been removed. Module-specific Editor assemblies are active. `GameSystems.Sequencing` is now a
+first-class module, ability conditions share one namespace, and activation is represented by a single
+`Auto Start` flag. Remaining Character, identity, and Feedback migrations require dedicated
+serialized-content conversion.
 
 ## Executive summary
 
 The runtime foundations are sound: ScriptableObject definitions, per-owner runtimes, reusable
 conditions/actions, a motor abstraction, stat assets, hooks, and playable animation assets form a
 coherent plugin base. The main problem is architectural drift. `GameSystems.Abilities` now owns an
-entire character framework, `Core/Sequencing` compiles as `GameSystems.Actions`, and several old
+entire character framework, `Core/Sequencing` compiles as `GameSystems.Sequencing`, and several old
 identity and animation systems remain serialized beside their replacements.
 
 The recommended direction is:
@@ -45,7 +47,7 @@ The recommended direction is:
 
 ### P1 - Fix module identity and ownership
 
-1. `Assets/GameSystems/Core/Sequencing` compiling as `GameSystems.Actions` gives the same concept
+1. `Assets/GameSystems/Core/Sequencing` compiling as `GameSystems.Sequencing` gives the same concept
    three names. Rename the assembly and namespace to `GameSystems.Sequencing`, or place it at
    `GameSystems/Core/Sequencing` under `GameSystems.Core.Sequencing`. The former is clearer as a
    reusable product module.

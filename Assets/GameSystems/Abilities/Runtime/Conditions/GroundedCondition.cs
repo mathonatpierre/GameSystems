@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace GameSystems.Abilities.Embedded
+namespace GameSystems.Abilities.Conditions
 {
     [Serializable]
     public sealed class GroundedCondition : AbilityCondition

@@ -1,6 +1,6 @@
 #if UNITY_EDITOR
-using GameSystems.Actions;
-using GameSystems.Actions.Editor;
+using GameSystems.Sequencing;
+using GameSystems.Sequencing.Editor;
 using GameSystems.Editor;
 using UnityEditor;
 using UnityEngine;
@@ -26,9 +26,9 @@ namespace GameSystems.Abilities.Editor
             GameSystemsInspectorUI.Header(ability.name,
                 $"{ability.Category} · P{ability.Priority} · {ability.Sequence.Conditions.Length} conditions · {ability.Sequence.Actions.Length} actions");
 
-            if (GameSystemsInspectorUI.Foldout(ref showScheduling, "Scheduling", ability.ActivationPolicy.ToString()))
+            if (GameSystemsInspectorUI.Foldout(ref showScheduling, "Scheduling", ability.AutoStart ? "Auto Start" : "Requested"))
             {
-                Draw("activationPolicy"); Draw("priority"); Draw("cooldown");
+                Draw("autoStart"); Draw("priority"); Draw("cooldown");
                 Draw("requiredAuthority"); Draw("exclusiveAuthority");
                 Draw("refreshWhileActive");
                 if (target.GetType() == typeof(SequenceAbilityDefinition)) Draw("category");

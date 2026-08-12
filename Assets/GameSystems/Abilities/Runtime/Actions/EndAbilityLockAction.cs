@@ -1,6 +1,6 @@
 using System;
 using GameSystems.Abilities;
-using GameSystems.Actions;
+using GameSystems.Sequencing;
 
 namespace GameSystems.Abilities.Actions
 {

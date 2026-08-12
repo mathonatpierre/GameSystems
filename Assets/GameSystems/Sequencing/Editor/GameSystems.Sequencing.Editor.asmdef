@@ -1,0 +1,9 @@
+{
+  "name": "GameSystems.Sequencing.Editor",
+  "rootNamespace": "GameSystems.Sequencing.Editor",
+  "references": [
+    "GameSystems.Sequencing"
+  ],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}
