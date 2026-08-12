@@ -1,0 +1,19 @@
+{
+  "name": "GameSystems.Abilities.PlayModeTests",
+  "references": [
+    "GameSystems.Abilities",
+    "GameSystems.Actions",
+    "GameSystems.Hooks",
+    "GameSystems.Playables",
+    "GameSystems.Feedbacks",
+    "GameSystems.Stats"
+  ],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "autoReferenced": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"],
+  "noEngineReferences": false
+}

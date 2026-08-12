@@ -1,0 +1,10 @@
+{
+  "name": "GameSystems.Feedbacks.Editor",
+  "rootNamespace": "GameSystems.Feedbacks.Editor",
+  "references": [
+    "GameSystems.Feedbacks",
+    "GameSystems.Editor"
+  ],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

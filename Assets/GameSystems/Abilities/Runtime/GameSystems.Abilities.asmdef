@@ -1,0 +1,21 @@
+{
+  "name": "GameSystems.Abilities",
+  "rootNamespace": "GameSystems.Abilities",
+  "references": [
+    "GameSystems.Actions",
+    "GameSystems.Hooks",
+    "GameSystems.Feedbacks",
+    "GameSystems.Playables",
+    "GameSystems.Stats",
+    "Unity.InputSystem"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

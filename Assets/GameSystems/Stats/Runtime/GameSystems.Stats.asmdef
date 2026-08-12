@@ -1,0 +1,7 @@
+{
+  "name": "GameSystems.Stats",
+  "rootNamespace": "GameSystems.Stats",
+  "references": [],
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

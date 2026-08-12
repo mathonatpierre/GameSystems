@@ -1,0 +1,10 @@
+{
+  "name": "GameSystems.Stats.Editor",
+  "rootNamespace": "GameSystems.Stats.Editor",
+  "references": [
+    "GameSystems.Stats",
+    "GameSystems.Editor"
+  ],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

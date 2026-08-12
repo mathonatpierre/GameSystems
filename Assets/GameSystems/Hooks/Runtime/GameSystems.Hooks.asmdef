@@ -1,0 +1,7 @@
+{
+  "name": "GameSystems.Hooks",
+  "rootNamespace": "GameSystems.Hooks",
+  "references": [],
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

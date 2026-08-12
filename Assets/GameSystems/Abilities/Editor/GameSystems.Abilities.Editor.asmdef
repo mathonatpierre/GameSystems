@@ -1,0 +1,15 @@
+{
+  "name": "GameSystems.Abilities.Editor",
+  "rootNamespace": "GameSystems.Abilities.Editor",
+  "references": [
+    "GameSystems.Abilities",
+    "GameSystems.Actions",
+    "GameSystems.Actions.Editor",
+    "GameSystems.Editor",
+    "GameSystems.Feedbacks",
+    "GameSystems.Playables",
+    "GameSystems.Stats"
+  ],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

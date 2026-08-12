@@ -1,0 +1,8 @@
+{
+  "name": "GameSystems.LevelGeneration",
+  "rootNamespace": "GameSystems.LevelGeneration",
+  "references": [
+    "GameSystems.Core"
+  ],
+  "autoReferenced": true
+}

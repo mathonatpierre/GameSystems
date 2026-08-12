@@ -1,0 +1,9 @@
+.DS_Store
+Library/
+Logs/
+Temp/
+Obj/
+UserSettings/
+*.csproj
+*.sln
+*.user

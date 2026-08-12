@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GameSystems Wiki</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><img src="icons/core.png" alt=""><div><strong>GameSystems</strong><span>Documentation</span></div></div>
+    <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Rechercher"></label>
+    <nav id="nav">
+      <a href="#overview">Vue d'ensemble</a><a href="#character">Character runtime</a>
+      <a href="#sequencing">Actions & conditions</a><a href="#abilities">Abilities</a>
+      <a href="#stats">Stats</a><a href="#feedbacks">Feedbacks</a>
+      <a href="#playables">Playables</a><a href="#generation">Level generation</a>
+      <a href="#assets">Assets Lennie</a><a href="#enums">Politique des enums</a>
+      <a href="#api" class="api-nav-link">Référence API</a>
+    </nav>
+    <p class="stamp">Architecture actuelle · août 2026</p>
+  </aside>
+  <main>
+    <header id="overview" data-search="architecture modules game systems">
+      <div class="eyebrow">Documentation technique</div>
+      <h1>GameSystems</h1>
+      <p>Plugin Unity modulaire pour les characters, abilities, actions, conditions, stats, feedbacks, playables et la génération de niveaux jouables.</p>
+      <div class="status"><span></span> Architecture sans CharacterBrain</div>
+    </header>
+
+    <section data-search="flux runtime architecture input ai ability motor contact stats">
+      <h2>Flux runtime</h2>
+      <div class="flow">
+        <div><b>Input / AI</b><small>produit des requêtes</small></div><i>→</i>
+        <div><b>Ability Controller</b><small>arbitre et exécute</small></div><i>→</i>
+        <div><b>Motor</b><small>applique le mouvement</small></div><i>→</i>
+        <div><b>Contacts</b><small>évalue les règles</small></div>
+      </div>
+      <p class="note">Les <strong>Stats</strong>, <strong>Playables</strong> et <strong>Reactive Sequences</strong> observent ce flux sans passer par une façade centrale.</p>
+    </section>
+
+    <section id="character" data-search="character prefab components controller motor input ai contact reactive">
+      <div class="section-title"><img src="icons/motor.png" alt=""><div><h2>Character Runtime</h2><p>Un prefab est une composition de responsabilités indépendantes.</p></div></div>
+      <table><thead><tr><th>Composant</th><th>Responsabilité</th><th>Ne fait pas</th></tr></thead><tbody>
+        <tr><td><code>CharacterStats</code></td><td>Valeurs, attributs, modifiers, formules</td><td>Dégâts, mort, feedback</td></tr>
+        <tr><td><code>CharacterAbilityController</code></td><td>AbilitySet, requêtes, locks, transitions</td><td>Input ou déplacement</td></tr>
+        <tr><td><code>CharacterControllerMotor</code></td><td>Mouvement, collision, état grounded, checkpoint</td><td>Décision de gameplay</td></tr>
+        <tr><td><code>PlayerAbilityInputSource</code></td><td>Input System, buffering, requêtes</td><td>Exécution des abilities</td></tr>
+        <tr><td><code>CharacterAIController</code></td><td>Décisions et requêtes IA</td><td>Physique ou animation</td></tr>
+        <tr><td><code>CharacterContactController</code></td><td>Contacts et règles condition/action</td><td>Mutation directe des systèmes</td></tr>
+        <tr><td><code>StatChangeSequenceController</code></td><td>Réagit aux changements de stats</td><td>Connaître le Game Over</td></tr>
+      </tbody></table>
+      <h3>Ordre recommandé sur un prefab</h3>
+      <pre>Transform
+CharacterController
+CharacterStats
+CharacterAbilityController
+CharacterControllerMotor
+Input Source ou AI Controller
+CharacterContactController
+StatChangeSequenceController (si nécessaire)
+PlayableCharacterAnimationDriver
+UnityPlayableAnimationPlayer
+PlayableAnimationBindings
+SceneHook</pre>
+    </section>
+
+    <section id="sequencing" data-search="core sequence actions conditions debug inline yellow green red">
+      <div class="section-title"><img src="icons/core.png" alt=""><div><h2>Actions & Conditions</h2><p>Le langage commun du plugin.</p></div></div>
+      <div class="columns"><article><h3>GameActionSequence</h3><p>Une liste de conditions suivie d'une liste d'actions sérialisées. Les éléments sont polymorphes, éditables inline et exécutés par <code>GameActionRunner</code>.</p></article><article><h3>Debug runtime</h3><p>Jaune pendant l'exécution ou l'évaluation, vert en cas de succès, rouge en cas d'échec. Le statut reste visible quelques frames.</p></article></div>
+      <h3>Game Over actuel</h3>
+      <pre>On Health changed
+IF Health &lt;= Minimum
+THEN Begin Ability Lock
+     Request Death Reaction
+     Wait 1.15s (unscaled)
+     Reload Current Scene</pre>
+      <p class="note">Le Game Over n'est connu ni par les Stats, ni par l'AbilityController, ni par le Motor.</p>
+    </section>
+
+    <section id="abilities" data-search="abilities locomotion reaction sequence transition ability set">
+      <div class="section-title"><img src="icons/abilities.png" alt=""><div><h2>Abilities</h2><p>Des définitions génériques pilotées par séquences.</p></div></div>
+      <div class="columns"><article><h3>Catégories</h3><p><strong>Locomotion</strong> décrit Ground/Air/Fall. <strong>Ability</strong> décrit Jump, Stomp ou sort. <strong>Reaction</strong> décrit Hit, Death, Respawn, Victory ou Purify sans sous-classe spécialisée.</p></article><article><h3>Transitions</h3><p>Chaque transition possède un trigger fermé, des conditions, des actions, une priorité et une cible facultative.</p></article></div>
+      <p><code>AbilitySet</code> est référencé directement par <code>CharacterAbilityController</code>. L'ancien <code>CharacterDefinition</code> et ses assets ont été supprimés.</p>
+    </section>
+
+    <section id="stats" data-search="stats formula ncalc health attribute modifier">
+      <div class="section-title"><img src="icons/stats.png" alt=""><div><h2>Stats</h2><p>Source unique des valeurs de personnage.</p></div></div>
+      <p><code>CharacterStatsDefinition</code> rassemble Stats et Attributes. Les formules acceptent les références lisibles :</p>
+      <pre>[FOR] * 2 - [DEF]</pre>
+      <p>Les dégâts ne sont pas un système séparé : une action appelle <code>CharacterStats.Change(attribute, delta)</code>. Les conséquences sont exprimées par des règles réactives.</p>
+    </section>
+
+    <section id="feedbacks" data-search="feedback cue sequence preview camera shake audio material">
+      <div class="section-title"><img src="icons/feedbacks.png" alt=""><div><h2>Feedbacks</h2><p>Séquences de présentation réutilisables.</p></div></div>
+      <p><code>FeedbackSequence</code> compose des assets de feedback : caméra, transform, material, audio, particules, freeze frame ou post-process. Les références sont éditables inline avec preview et politiques de concurrence.</p>
+    </section>
+
+    <section id="playables" data-search="playables animator procedural animation clip after animator">
+      <div class="section-title"><img src="icons/playables.png" alt=""><div><h2>Playables</h2><p>Animation clip, blend et procédural dans un même module.</p></div></div>
+      <p><code>UnityPlayableAnimationPlayer</code> joue les assets. <code>PlayableCharacterAnimationDriver</code> choisit l'intention publiée par les abilities. Les tracks d'un <code>ProceduralAnimationClip</code> s'appliquent après l'Animator et possèdent leur état runtime par instance.</p>
+      <table><thead><tr><th>Composant</th><th>Rôle exact</th></tr></thead><tbody><tr><td><code>UnityPlayableAnimationPlayer</code></td><td>Construit et évalue le graphe Playable.</td></tr><tr><td><code>PlayableCharacterAnimationDriver</code></td><td>Adapte Motor + abilities vers les paramètres et l'animation présentée. Candidat à un renommage en <code>AbilityAnimationDriver</code>.</td></tr><tr><td><code>PlayableAnimationBindings</code></td><td>Résout les transforms nommés utilisés par les clips procéduraux.</td></tr></tbody></table>
+    </section>
+
+    <section id="generation" data-search="level generator capabilities jump envelope prefab enemies patrol">
+      <div class="section-title"><img src="icons/level-generation.png" alt=""><div><h2>Level Generation</h2><p>Génération contrainte par les capacités réelles.</p></div></div>
+      <p>Le générateur lit directement l'<code>AbilitySet</code> et le <code>CharacterController</code> du prefab pour calculer vitesses, trajectoires de saut, enveloppe physique et clearance. Les ennemis sont instanciés depuis leurs prefabs en conservant le lien.</p>
+    </section>
+
+    <section id="assets" data-search="lennie concrete ball slime prefab assets hooks">
+      <h2>Assets Lennie</h2>
+      <div class="asset-grid"><article><b>PREF_Lennie</b><span>Player input · Stats · Reactive Game Over</span></article><article><b>PREF_ConcreteBall</b><span>AI · Patrol · Purify · Side damage</span></article><article><b>PREF_Slime</b><span>AI · Patrol · Evade · Stomp bounce</span></article></div>
+    </section>
+
+    <section id="enums" data-search="enum extensibility policy cleanup ids">
+      <h2>Politique des enums</h2>
+      <div class="warning"><strong>Règle :</strong> une enum n'est acceptable que pour un ensemble petit, fermé et structurel. Les identifiants de contenu et les familles extensibles utilisent des assets ou des types polymorphes.</div>
+      <table><thead><tr><th>Conserver</th><th>À remplacer progressivement</th></tr></thead><tbody>
+        <tr><td>Comparaisons numériques, phases d'input, états d'exécution</td><td><code>ReactionId</code> → ReactionDefinition / ID asset</td></tr>
+        <tr><td>Self/Other, All/Any/None, axes mathématiques</td><td><code>FeedbackKind</code> → feedbacks polymorphes</td></tr>
+        <tr><td>Triggers de transition réellement fermés</td><td><code>PlatformTypeId</code> → PlatformTypeDefinition</td></tr>
+      </tbody></table>
+      <p><code>ReactiveSequenceTrigger</code>, enum mono-valeur, a été supprimée.</p>
+    </section>
+    <section data-search="icons iconographie couleurs assets">
+      <h2>Iconographie</h2>
+      <p>Les icônes de module restent les fallbacks. Les assets suivants demandent une icône dédiée : AI Character, Sequence Ability, Reaction, Procedural Clip, Animation Clip, Animation Set, Action Sequence et Hook ID.</p>
+      <div class="asset-grid"><article><b>Violet</b><span>Abilities et AI</span></article><article><b>Cyan</b><span>Playables et animation</span></article><article><b>Vert</b><span>Hooks et identité</span></article><article><b>Rouge / rose</b><span>Reactions et feedbacks</span></article><article><b>Gris</b><span>Core et séquences</span></article><article><b>Jaune</b><span>Stats et formules</span></article></div>
+    </section>
+    <section id="api" class="api-reference" data-search="api classes méthodes propriétés événements référence">
+      <div class="api-heading">
+        <div><div class="eyebrow">Référence des sources</div><h2>API GameSystems</h2></div>
+        <div id="apiStats" class="api-stats"></div>
+      </div>
+      <div class="api-toolbar">
+        <label class="api-filter"><span>Filtrer les types et membres</span><input id="apiSearch" type="search" placeholder="CharacterAbilityController, Request, Play..."></label>
+        <label class="api-toggle"><input id="includeEditor" type="checkbox"><span>Inclure les classes Editor</span></label>
+      </div>
+      <div class="api-layout">
+        <aside id="apiIndex" class="api-index"></aside>
+        <article id="apiContent" class="api-content"><p class="api-empty">Chargement de la référence...</p></article>
+      </div>
+    </section>
+  </main>
+  <script src="api-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

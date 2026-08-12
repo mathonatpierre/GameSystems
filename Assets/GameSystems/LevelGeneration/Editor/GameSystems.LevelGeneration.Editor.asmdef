@@ -1,0 +1,11 @@
+{
+  "name": "GameSystems.LevelGeneration.Editor",
+  "rootNamespace": "GameSystems.LevelGeneration.Editor",
+  "references": [
+    "GameSystems.LevelGeneration",
+    "GameSystems.Core",
+    "GameSystems.Editor"
+  ],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}
