@@ -3,6 +3,7 @@
   "rootNamespace": "GameSystems.Editor",
   "references": [
     "GameSystems.Core",
+    "GameSystems.Characters.Core",
     "GameSystems.Sequencing",
     "GameSystems.Abilities",
     "GameSystems.Feedbacks",

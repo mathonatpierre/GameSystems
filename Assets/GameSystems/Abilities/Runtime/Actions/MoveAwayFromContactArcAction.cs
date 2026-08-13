@@ -2,6 +2,8 @@ using System;
 using GameSystems.Sequencing;
 using UnityEngine;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities.Actions
 {
     [Serializable]
@@ -30,8 +32,8 @@ namespace GameSystems.Abilities.Actions
             {
                 base.OnEnter();
                 CharacterRuntimeContext character = Context.Get<CharacterRuntimeContext>();
-                CharacterContactController contacts = character?.Resolve<CharacterContactController>();
-                CharacterAbilityController other = contacts?.LastContact.Other;
+                CharacterAbilityController other = Context.TryGet(out CharacterContactContext contact)
+                    ? contact.Other : null;
                 if (character == null || other == null) { Fail("No character contact is available."); return; }
                 actor = character.Transform;
                 motor = character.Motor as ICharacterMotorControl;

@@ -1,4 +1,5 @@
 using UnityEngine;
+using GameSystems.Abilities;
 
 namespace GameSystems.Abilities
 {

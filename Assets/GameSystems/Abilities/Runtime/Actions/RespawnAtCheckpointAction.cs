@@ -3,6 +3,8 @@ using GameSystems.Abilities;
 using GameSystems.Sequencing;
 using UnityEngine;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities.Actions
 {
     [Serializable]

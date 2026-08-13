@@ -1,6 +1,8 @@
 using System;
 using GameSystems.Sequencing;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities.Actions
 {
     [Serializable]

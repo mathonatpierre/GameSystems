@@ -2,6 +2,8 @@ using UnityEngine;
 using System;
 using System.Collections.Generic;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities
 {
     public sealed class CharacterRuntimeContext

@@ -6,8 +6,10 @@ Cleanup status: legacy character definitions, the unused locomotion animation gr
 horizontal movement action, the Rigidbody motor, dead state-provider types, and unused Core IDs have
 been removed. Module-specific Editor assemblies are active. `GameSystems.Sequencing` is now a
 first-class module, ability conditions share one namespace, and activation is represented by a single
-`Auto Start` flag. Remaining Character, identity, and Feedback migrations require dedicated
-serialized-content conversion.
+`Auto Start` flag. Character responsibilities are now split into `GameSystems.Characters.Core`
+(neutral motor/service contracts), `GameSystems.Abilities` (ability definitions and orchestration),
+and `GameSystems.Characters` (Unity motor, AI, input, contacts, services and presentation adapters).
+Remaining identity and Feedback migrations require dedicated serialized-content conversion.
 
 ## Executive summary
 

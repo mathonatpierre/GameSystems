@@ -4,6 +4,8 @@ using UnityEngine;
 using GameSystems.Editor;
 using GameSystems.Stats;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities.Editor
 {
     [CustomEditor(typeof(CharacterAbilityController))]

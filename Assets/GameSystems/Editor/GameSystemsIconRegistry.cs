@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Editor
 {
     [InitializeOnLoad]

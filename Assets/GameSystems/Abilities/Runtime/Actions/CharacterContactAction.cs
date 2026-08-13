@@ -3,6 +3,8 @@ using GameSystems.Sequencing;
 using GameSystems.Stats;
 using UnityEngine;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities.Actions
 {
     public enum CharacterContactTarget { Self, Other }

@@ -2,6 +2,8 @@
   "name": "GameSystems.Abilities.PlayModeTests",
   "references": [
     "GameSystems.Abilities",
+    "GameSystems.Characters.Core",
+    "GameSystems.Characters",
     "GameSystems.Sequencing",
     "GameSystems.Hooks",
     "GameSystems.Playables",

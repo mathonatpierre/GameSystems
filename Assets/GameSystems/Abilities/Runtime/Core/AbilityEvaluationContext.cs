@@ -1,3 +1,5 @@
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities
 {
     public readonly struct AbilityEvaluationContext

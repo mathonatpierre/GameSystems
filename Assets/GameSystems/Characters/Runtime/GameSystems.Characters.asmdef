@@ -1,0 +1,15 @@
+{
+  "name": "GameSystems.Characters",
+  "rootNamespace": "GameSystems.Characters",
+  "references": [
+    "GameSystems.Characters.Core",
+    "GameSystems.Abilities",
+    "GameSystems.Sequencing",
+    "GameSystems.Hooks",
+    "GameSystems.Playables",
+    "GameSystems.Stats",
+    "Unity.InputSystem"
+  ],
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

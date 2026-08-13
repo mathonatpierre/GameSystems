@@ -1,5 +1,7 @@
 using GameSystems.Sequencing;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities
 {
     public sealed class SequenceAbilityRuntime : AbilityRuntime

@@ -1,0 +1,7 @@
+{
+  "name": "GameSystems.Characters.Core",
+  "rootNamespace": "GameSystems.Characters",
+  "references": [],
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

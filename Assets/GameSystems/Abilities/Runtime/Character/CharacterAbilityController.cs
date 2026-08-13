@@ -4,6 +4,8 @@ using GameSystems.Feedbacks;
 using GameSystems.Sequencing;
 using UnityEngine;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities
 {
     [DefaultExecutionOrder(-300)]
@@ -55,7 +57,7 @@ namespace GameSystems.Abilities
             StartAutomaticAbilities();
         }
 
-        void OnEnable() => CharacterRegistry.Register(this);
+        void OnEnable() => CharacterAbilityRegistry.Register(this);
 
         void Update()
         {
@@ -370,7 +372,7 @@ namespace GameSystems.Abilities
 
         void OnDisable()
         {
-            CharacterRegistry.Unregister(this);
+            CharacterAbilityRegistry.Unregister(this);
             ResetAll();
         }
     }

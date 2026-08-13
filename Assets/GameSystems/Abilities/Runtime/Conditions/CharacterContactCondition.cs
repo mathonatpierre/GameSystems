@@ -3,6 +3,8 @@ using GameSystems.Sequencing;
 using GameSystems.Hooks;
 using UnityEngine;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities.Conditions
 {
     public enum CharacterContactOrientation { Any, Top, Side }

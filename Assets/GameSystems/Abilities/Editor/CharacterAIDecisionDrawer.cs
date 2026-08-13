@@ -4,6 +4,8 @@ using GameSystems.Sequencing.Editor;
 using UnityEditor;
 using UnityEngine;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities.Editor
 {
     [CustomPropertyDrawer(typeof(CharacterAIDecision))]

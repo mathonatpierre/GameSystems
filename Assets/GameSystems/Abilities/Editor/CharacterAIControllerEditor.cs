@@ -2,6 +2,8 @@
 using UnityEditor;
 using UnityEngine;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities.Editor
 {
     [CustomEditor(typeof(CharacterAIController))]

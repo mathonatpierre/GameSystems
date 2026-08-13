@@ -1,6 +1,8 @@
 using System;
 using UnityEngine;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities.Conditions
 {
     [Serializable]

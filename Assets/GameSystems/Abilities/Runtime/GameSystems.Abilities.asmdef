@@ -2,6 +2,7 @@
   "name": "GameSystems.Abilities",
   "rootNamespace": "GameSystems.Abilities",
   "references": [
+    "GameSystems.Characters.Core",
     "GameSystems.Sequencing",
     "GameSystems.Hooks",
     "GameSystems.Feedbacks",

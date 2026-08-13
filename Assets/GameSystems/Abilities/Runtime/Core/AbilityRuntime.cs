@@ -1,5 +1,7 @@
 using UnityEngine;
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities
 {
     public abstract class AbilityRuntime

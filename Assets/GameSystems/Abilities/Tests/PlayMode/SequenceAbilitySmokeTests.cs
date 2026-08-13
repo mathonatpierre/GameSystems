@@ -11,6 +11,8 @@ using GameSystems.Feedbacks;
 using UnityEditor;
 #endif
 
+using GameSystems.Characters;
+
 namespace GameSystems.Abilities.Tests
 {
     [DefaultExecutionOrder(31000)]
