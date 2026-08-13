@@ -14,6 +14,7 @@ namespace GameSystems.Characters
         CharacterAbilityController abilities;
         [SerializeField] CharacterContactRule[] rules;
         readonly List<GameActionRunner> runners = new();
+        readonly Dictionary<UnityEngine.Object, CharacterContactContext> pendingContacts = new();
 
         public event Action<CharacterContactContext> ContactReceived;
         public CharacterContactContext LastContact { get; private set; }
@@ -27,16 +28,24 @@ namespace GameSystems.Characters
                 if (runners[i].Tick(Time.deltaTime)) runners.RemoveAt(i);
         }
 
+        void LateUpdate()
+        {
+            if (pendingContacts.Count == 0) return;
+            foreach (CharacterContactContext context in pendingContacts.Values)
+                PublishImmediate(context);
+            pendingContacts.Clear();
+        }
+
         public void ReceiveCharacterContact(CharacterAbilityController character, Vector3 point, Vector3 normal)
         {
             Collider collider = character != null ? character.GetComponent<Collider>() : null;
-            Publish(new CharacterContactContext(abilities, character, collider, point, normal,
+            PublishImmediate(new CharacterContactContext(abilities, character, collider, point, normal,
                 RelativeVelocity(character), CharacterContactSource.CharacterController));
         }
 
         public void ReceiveMotorContact(CharacterAbilityController character, Collider collider, Vector3 point,
             Vector3 normal, Vector3 relativeVelocity) =>
-            Publish(new CharacterContactContext(abilities, character, collider, point, normal,
+            Queue(new CharacterContactContext(abilities, character, collider, point, normal,
                 relativeVelocity, CharacterContactSource.Motor));
 
         void OnCollisionEnter(Collision collision)
@@ -44,14 +53,14 @@ namespace GameSystems.Characters
             CharacterAbilityController other = collision.collider.GetComponentInParent<CharacterAbilityController>();
             if (collision.contactCount == 0)
             {
-                Publish(new CharacterContactContext(abilities, other, collision.collider, transform.position,
+                Queue(new CharacterContactContext(abilities, other, collision.collider, transform.position,
                     Vector3.zero, collision.relativeVelocity, CharacterContactSource.Collision));
                 return;
             }
             for (int i = 0; i < collision.contactCount; i++)
             {
                 ContactPoint contact = collision.GetContact(i);
-                Publish(new CharacterContactContext(abilities, other, collision.collider, contact.point,
+                Queue(new CharacterContactContext(abilities, other, collision.collider, contact.point,
                     contact.normal, collision.relativeVelocity, CharacterContactSource.Collision));
             }
         }
@@ -61,7 +70,7 @@ namespace GameSystems.Characters
             CharacterAbilityController other = otherCollider.GetComponentInParent<CharacterAbilityController>();
             Vector3 point = otherCollider.ClosestPoint(transform.position);
             Vector3 normal = (transform.position - point).normalized;
-            Publish(new CharacterContactContext(abilities, other, otherCollider, point, normal,
+            Queue(new CharacterContactContext(abilities, other, otherCollider, point, normal,
                 RelativeVelocity(other), CharacterContactSource.Trigger));
         }
 
@@ -70,12 +79,26 @@ namespace GameSystems.Characters
             if (hit == null || hit.collider == null) return;
             CharacterAbilityController other = hit.collider.GetComponentInParent<CharacterAbilityController>();
             ICharacterContactReceiver receiver = hit.collider.GetComponentInParent<ICharacterContactReceiver>();
-            receiver?.ReceiveCharacterContact(abilities, hit.point, hit.normal);
+            if (receiver is CharacterContactController contactController)
+                contactController.ReceiveMotorContact(abilities, GetComponent<Collider>(), hit.point, hit.normal,
+                    -RelativeVelocity(other));
+            else
+                receiver?.ReceiveCharacterContact(abilities, hit.point, hit.normal);
             if (other != null && !ReferenceEquals(this, receiver))
                 ReceiveCharacterContact(other, hit.point, -hit.normal);
         }
 
-        void Publish(in CharacterContactContext context)
+        void Queue(in CharacterContactContext context)
+        {
+            UnityEngine.Object key = context.Other != null ? context.Other : context.OtherCollider;
+            if (key == null) return;
+            if (!pendingContacts.TryGetValue(key, out CharacterContactContext current) ||
+                context.Normal.y > current.Normal.y ||
+                Mathf.Approximately(context.Normal.y, current.Normal.y) && context.Point.y > current.Point.y)
+                pendingContacts[key] = context;
+        }
+
+        void PublishImmediate(in CharacterContactContext context)
         {
             LastContact = context;
             ContactReceived?.Invoke(context);

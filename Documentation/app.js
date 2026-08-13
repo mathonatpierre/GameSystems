@@ -11,6 +11,8 @@ const apiContent=document.querySelector('#apiContent');
 const apiSearch=document.querySelector('#apiSearch');
 const includeEditor=document.querySelector('#includeEditor');
 const apiStats=document.querySelector('#apiStats');
+const documentationStamp=document.querySelector('#documentationStamp');
+const versionBadge=document.querySelector('#versionBadge');
 let selectedType=null;
 
 const escapeHtml=value=>String(value||'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -50,7 +52,10 @@ function refreshApi(){
 }
 
 if(api){
-  apiStats.textContent=`${api.typeCount} types · ${api.memberCount} membres · ${api.generatedAt}`;
+  const release=`v${api.version} · ${api.generatedAt}`;
+  documentationStamp.textContent=release;
+  versionBadge.textContent=release;
+  apiStats.textContent=`v${api.version} · ${api.typeCount} types · ${api.memberCount} membres · ${api.generatedAt}`;
   apiSearch.addEventListener('input',refreshApi);
   includeEditor.addEventListener('change',refreshApi);
   refreshApi();

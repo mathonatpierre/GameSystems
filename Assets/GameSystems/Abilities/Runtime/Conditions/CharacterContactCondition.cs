@@ -52,13 +52,15 @@ namespace GameSystems.Abilities.Conditions
             float feetY = contact.Other.transform.position.y + (otherController != null
                 ? otherController.center.y - otherController.height * .5f
                 : 0f);
+            float verticalVelocity = contact.Other.Motor?.Result.Velocity.y ?? 0f;
+            float previousFeetY = feetY - verticalVelocity * Mathf.Max(Time.deltaTime, 1f / 120f);
             float radius = otherController != null ? otherController.radius : .18f;
             Vector3 position = contact.Other.transform.position;
             bool horizontalOverlap = position.x >= bounds.min.x - radius * .35f &&
                                      position.x <= bounds.max.x + radius * .35f &&
                                      position.z >= bounds.min.z - radius &&
                                      position.z <= bounds.max.z + radius;
-            return horizontalOverlap && feetY >= bounds.max.y - topBandBelow &&
+            return horizontalOverlap && Mathf.Max(feetY, previousFeetY) >= bounds.max.y - topBandBelow &&
                    feetY <= bounds.max.y + topBandAbove;
         }
     }

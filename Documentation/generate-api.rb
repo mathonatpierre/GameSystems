@@ -5,6 +5,7 @@ require "json"
 ROOT = File.expand_path("..", __dir__)
 SOURCE_ROOT = File.join(ROOT, "Assets", "GameSystems")
 OUTPUT = File.join(__dir__, "api-data.js")
+VERSION_FILE = File.join(SOURCE_ROOT, "VERSION")
 
 def line_number(source, offset)
   source[0...offset].count("\n") + 1
@@ -209,7 +210,8 @@ end
 
 types.sort_by! { |type| [type[:module], type[:namespace], type[:name]] }
 payload = {
-  generatedAt: Time.now.strftime("%Y-%m-%d %H:%M"),
+  version: File.exist?(VERSION_FILE) ? File.read(VERSION_FILE).strip : "dev",
+  generatedAt: Time.now.strftime("%d/%m/%Y à %H:%M:%S %Z"),
   sourceRoot: "Assets/GameSystems",
   typeCount: types.length,
   memberCount: types.sum { |type| type[:members].length },
