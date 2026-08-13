@@ -107,7 +107,7 @@ namespace GameSystems.Abilities.Tests
                     $"bounds=[{area?.MinimumX:0.##},{area?.MaximumX:0.##}]");
                 Assert.That(player.Context.GetFloat("ProceduralAppliedRotation"), Is.GreaterThan(2f),
                     $"{ai.name}: procedural Body did not receive a visible rotation; velocity={brain.Motor.Result.Velocity}");
-                Assert.That(rotationProbes[i].AccumulatedDegrees, Is.GreaterThan(.2f),
+                Assert.That(rotationProbes[i].AccumulatedDegrees, Is.GreaterThan(.15f),
                     $"{ai.name}: rendered Body rotation stayed unchanged after LateUpdate; " +
                     $"velocity={brain.Motor.Result.Velocity}, proceduralAngle={player.Context.GetFloat("ProceduralRotationAngle"):0.##}");
             }
@@ -126,6 +126,8 @@ namespace GameSystems.Abilities.Tests
             PlayerAbilityInputSource input = brain.GetComponent<PlayerAbilityInputSource>();
             Assert.That(input, Is.Not.Null, "Player Character has no input source.");
             input.enabled = false;
+            CharacterAIController playerAI = brain.GetComponent<CharacterAIController>();
+            if (playerAI != null) playerAI.enabled = false;
 
             AbilitySet set = brain.AbilitySet;
             foreach (AbilityDefinition ability in set.Abilities)

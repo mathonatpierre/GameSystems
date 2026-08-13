@@ -25,6 +25,17 @@ namespace GameSystems.Characters
         public GameCondition[] Conditions => conditions ?? Array.Empty<GameCondition>();
         public bool DebugSelected => selected;
 
+        public CharacterAIDecision Configure(string name, AbilityDefinition requestedAbility,
+            int decisionPriority, float interval, params GameCondition[] requirements)
+        {
+            label = name;
+            ability = requestedAbility;
+            priority = decisionPriority;
+            minimumInterval = Mathf.Max(0f, interval);
+            conditions = requirements ?? Array.Empty<GameCondition>();
+            return this;
+        }
+
         public bool Evaluate(in CharacterAIContext aiContext, double now)
         {
             selected = false;

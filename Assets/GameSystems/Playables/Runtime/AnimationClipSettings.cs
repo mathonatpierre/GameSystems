@@ -10,10 +10,12 @@ namespace GameSystems.Playables
         [SerializeField, Min(.01f)] float speed = 1f;
         [SerializeField, Range(0f, 1f)] float normalizedStart;
         [SerializeField, Range(0f, 1f)] float normalizedEnd = 1f;
+        [SerializeField] bool loop;
 
         public AnimationClip Clip => clip;
         public float Speed => speed;
         public float NormalizedStart => normalizedStart;
         public float NormalizedEnd => normalizedEnd;
+        public bool Loop => loop;
     }
 }

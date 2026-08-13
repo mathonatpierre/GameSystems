@@ -36,7 +36,14 @@ namespace GameSystems.Playables
                 return playable;
             }
 
-            public override void Evaluate(PlayableAnimationContext context) { }
+            public override void Evaluate(PlayableAnimationContext context)
+            {
+                if (!settings.Loop || settings.Clip == null) return;
+                double start = settings.Clip.length * settings.NormalizedStart;
+                double end = settings.Clip.length * settings.NormalizedEnd;
+                double duration = Mathf.Max(.001f, (float)(end - start));
+                if (clip.GetTime() >= end) clip.SetTime(start + (clip.GetTime() - start) % duration);
+            }
 
             public override void Restart()
             {
