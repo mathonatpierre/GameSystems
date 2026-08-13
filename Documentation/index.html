@@ -5,16 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GameSystems Wiki</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="navigation.css">
 </head>
 <body>
   <aside class="sidebar">
     <div class="brand"><img src="icons/core.png" alt=""><div><strong>GameSystems</strong><span>Documentation</span></div></div>
     <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Rechercher"></label>
     <nav id="nav">
-      <a href="#overview">Vue d'ensemble</a><a href="#character">Character runtime</a>
-      <a href="#sequencing">Actions & conditions</a><a href="#abilities">Abilities</a>
-      <a href="#stats">Stats</a><a href="#feedbacks">Feedbacks</a>
-      <a href="#playables">Playables</a><a href="#generation">Level generation</a>
+      <a href="#overview">Vue d'ensemble</a><div class="nav-category"><a href="#character">Character runtime</a><div data-api-module="Characters"></div></div>
+      <div class="nav-category"><a href="#sequencing">Actions & conditions</a><div data-api-module="Core,Sequencing"></div></div><div class="nav-category"><a href="#abilities">Abilities</a><div data-api-module="Abilities"></div></div>
+      <div class="nav-category"><a href="#stats">Stats</a><div data-api-module="Stats"></div></div><div class="nav-category"><a href="#feedbacks">Feedbacks</a><div data-api-module="Feedbacks"></div></div>
+      <div class="nav-category"><a href="#playables">Playables</a><div data-api-module="Playables"></div></div><div class="nav-category"><a href="#generation">Level generation</a><div data-api-module="LevelGeneration"></div></div>
       <a href="#assets">Assets Lennie</a><a href="#enums">Politique des enums</a>
       <a href="#api" class="api-nav-link">Référence API</a>
     </nav>

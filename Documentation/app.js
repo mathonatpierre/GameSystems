@@ -18,6 +18,16 @@ let selectedType=null;
 const escapeHtml=value=>String(value||'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const typeId=type=>`api-${type.fullName.replace(/[^A-Za-z0-9_-]/g,'-')}`;
 
+function renderModuleNavigation(){
+  document.querySelectorAll('[data-api-module]').forEach(container=>{
+    const modules=container.dataset.apiModule.split(',');
+    const types=api.types.filter(type=>modules.includes(type.module)&&!type.editor);
+    if(!types.length)return;
+    container.innerHTML=`<details><summary>Classes <span>${types.length}</span></summary><div>${types.map(type=>`<a href="#${typeId(type)}" data-api-type="${escapeHtml(type.fullName)}">${escapeHtml(type.name)}</a>`).join('')}</div></details>`;
+    container.querySelectorAll('[data-api-type]').forEach(link=>link.addEventListener('click',()=>showType(link.dataset.apiType)));
+  });
+}
+
 function visibleTypes(){
   if(!api)return[];
   const query=apiSearch.value.trim().toLowerCase();
@@ -58,6 +68,7 @@ if(api){
   apiStats.textContent=`v${api.version} · ${api.typeCount} types · ${api.memberCount} membres · ${api.generatedAt}`;
   apiSearch.addEventListener('input',refreshApi);
   includeEditor.addEventListener('change',refreshApi);
+  renderModuleNavigation();
   refreshApi();
 }else{
   apiContent.innerHTML='<p class="api-empty">api-data.js est absent. Lancez generate-api.rb.</p>';

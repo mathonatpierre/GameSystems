@@ -1,0 +1,6 @@
+.nav-category > div { padding-left: 12px; }
+.nav-category details { border-left: 1px solid #cbd0d7; margin-left: 9px; }
+.nav-category summary { cursor: pointer; color: var(--muted); font-size: 11px; padding: 3px 8px; list-style: none; }
+.nav-category summary span { float: right; }
+.nav-category details div { max-height: 210px; overflow: auto; }
+.nav-category details a { display: block; padding: 3px 8px; border-left: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
