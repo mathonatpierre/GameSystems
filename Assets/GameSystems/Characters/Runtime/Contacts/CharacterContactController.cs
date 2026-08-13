@@ -9,16 +9,27 @@ namespace GameSystems.Characters
 {
     [MovedFrom(true, "GameSystems.Abilities", "GameSystems.Abilities", "CharacterContactController")]
     [DisallowMultipleComponent]
-    public sealed class CharacterContactController : MonoBehaviour, ICharacterContactReceiver
+    public sealed class CharacterContactController : MonoBehaviour, ICharacterContactReceiver,
+        ICharacterContactHistory, IContactGateService
     {
         CharacterAbilityController abilities;
         [SerializeField] CharacterContactRule[] rules;
         readonly List<GameActionRunner> runners = new();
         readonly Dictionary<UnityEngine.Object, CharacterContactContext> pendingContacts = new();
+        readonly Dictionary<string, double> gates = new();
 
         public event Action<CharacterContactContext> ContactReceived;
         public CharacterContactContext LastContact { get; private set; }
         public IReadOnlyList<CharacterContactRule> Rules => rules ?? Array.Empty<CharacterContactRule>();
+
+        public bool IsOpen(string channel) => string.IsNullOrWhiteSpace(channel) ||
+            !gates.TryGetValue(channel, out double until) || Time.timeAsDouble >= until;
+
+        public void Close(string channel, float duration)
+        {
+            if (!string.IsNullOrWhiteSpace(channel))
+                gates[channel] = Time.timeAsDouble + Mathf.Max(0f, duration);
+        }
 
         void Awake() => abilities = GetComponent<CharacterAbilityController>();
 

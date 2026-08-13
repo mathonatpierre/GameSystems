@@ -32,8 +32,10 @@ namespace GameSystems.Abilities.Actions
             {
                 base.OnEnter();
                 CharacterRuntimeContext character = Context.Get<CharacterRuntimeContext>();
-                CharacterAbilityController other = Context.TryGet(out CharacterContactContext contact)
-                    ? contact.Other : null;
+                CharacterContactContext contact = Context.TryGet(out CharacterContactContext directContact)
+                    ? directContact
+                    : character?.Resolve<ICharacterContactHistory>()?.LastContact ?? default;
+                CharacterAbilityController other = contact.Other;
                 if (character == null || other == null) { Fail("No character contact is available."); return; }
                 actor = character.Transform;
                 motor = character.Motor as ICharacterMotorControl;
