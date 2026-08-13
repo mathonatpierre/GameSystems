@@ -241,6 +241,7 @@ Dir.glob(File.join(SOURCE_ROOT, "**", "*.cs")).sort.each do |path|
       file: relative,
       line: line_number(source, match.begin(0)),
       editor: relative.include?("/Editor/"),
+      serializable: source[0...match.begin(0)].lines.last(8).join.match?(/\[(?:System\.)?Serializable\]/),
       members: declared_members(source, opening, closing, match[:name], match[:kind])
     }
   end
@@ -267,8 +268,16 @@ types.each do |type|
                       "Data"
                     elsif inherits_from.call(type, "MonoBehaviour")
                       "Runtime"
+                    elsif inherits_from.call(type, "GameAction")
+                      "Actions"
+                    elsif inherits_from.call(type, "GameCondition")
+                      "Conditions"
+                    elsif type[:kind] == "interface"
+                      "Interfaces"
+                    elsif type[:serializable]
+                      "Serializable Data"
                     else
-                      "Utilities & Interfaces"
+                      "Utilities"
                     end
   type[:icon] = icon_name(type)
 end

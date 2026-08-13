@@ -231,7 +231,8 @@ namespace GameSystems.Abilities.Tests
             Collider concreteBallCollider = concreteBallAI.GetComponent<Collider>();
             CharacterController playerController = brain.GetComponent<CharacterController>();
             float playerFeetOffset = playerController.center.y - playerController.height * .5f;
-            playerMotor.Teleport(new Vector3(concreteBallAI.transform.position.x,
+            playerMotor.Teleport(new Vector3(concreteBallAI.transform.position.x +
+                concreteBallCollider.bounds.extents.x + playerController.radius * .65f,
                 concreteBallCollider.bounds.max.y - playerFeetOffset + .05f, concreteBallAI.transform.position.z));
             playerMotor.SetVelocity(Vector3.down * 2f);
             yield return null;
@@ -327,6 +328,22 @@ namespace GameSystems.Abilities.Tests
             Assert.That(health.Current, Is.EqualTo(healthBeforeFall - 1f).Within(.001f),
                 "A lethal fall must apply exactly one point of damage.");
             Assert.That(brain.IsAbilityLocked, Is.False, "Fall respawn did not release its lock.");
+
+            Assert.That(brainStats.Set(health.Definition, health.Maximum), Is.True);
+            GameObject repeatedHitBall = Object.Instantiate(concreteBallPrefab,
+                brain.transform.position + Vector3.right * .45f, Quaternion.identity);
+            yield return null;
+            CharacterContactController repeatedHitContacts = repeatedHitBall.GetComponent<CharacterContactController>();
+            float repeatedHitStart = health.Current;
+            repeatedHitContacts.ReceiveCharacterContact(brain, brain.transform.position, Vector3.right);
+            yield return new WaitForSecondsRealtime(.6f);
+            Assert.That(health.Current, Is.EqualTo(repeatedHitStart - 1f).Within(.001f),
+                "The first repeated side contact did not damage Lennie.");
+            repeatedHitContacts.ReceiveCharacterContact(brain, brain.transform.position, Vector3.right);
+            yield return null;
+            Assert.That(health.Current, Is.EqualTo(repeatedHitStart - 2f).Within(.001f),
+                "Hit reaction cooldown must not prevent a valid side contact from applying damage.");
+            Object.Destroy(repeatedHitBall);
         }
 
         static AbilityDefinition Find(AbilitySet set, string namePart)

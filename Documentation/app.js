@@ -20,12 +20,13 @@ const typeId=type=>`api-${type.fullName.replace(/[^A-Za-z0-9_-]/g,'-')}`;
 
 function renderModuleNavigation(){
   const container=document.querySelector('#moduleNavigation');
-  const categories=['Data','Runtime','Utilities & Interfaces'];
+  const categories=['Data','Runtime','Actions','Conditions','Serializable Data','Interfaces','Utilities'];
+  const categoryIcons={Data:'feedback-asset',Runtime:'motor',Actions:'effect',Conditions:'condition','Serializable Data':'core',Interfaces:'hooks',Utilities:'core'};
   const modules={};
   api.types.filter(type=>!type.editor).forEach(type=>(modules[type.apiModule]??=[]).push(type));
   container.innerHTML=Object.entries(modules).map(([module,types])=>{
     const groups=categories.map(category=>[category,types.filter(type=>type.category===category)]).filter(([,items])=>items.length);
-    return `<details class="module-category"><summary><img src="icons/${escapeHtml(types[0].moduleIcon)}.png" alt=""><strong>${escapeHtml(module)}</strong><span>${types.length}</span></summary><div>${groups.map(([category,items])=>`<details class="type-category"><summary>${escapeHtml(category)} <span>${items.length}</span></summary><div>${items.map(type=>`<a href="#${typeId(type)}" data-api-type="${escapeHtml(type.fullName)}"><img src="icons/${escapeHtml(type.icon)}.png" alt="">${escapeHtml(type.name)}</a>`).join('')}</div></details>`).join('')}</div></details>`;
+    return `<details class="module-category"><summary><img src="icons/${escapeHtml(types[0].moduleIcon)}.png" alt=""><strong>${escapeHtml(module)}</strong><span>${types.length}</span></summary><div>${groups.map(([category,items])=>`<details class="type-category"><summary><img src="icons/${escapeHtml(categoryIcons[category])}.png" alt=""><strong>${escapeHtml(category)}</strong><span>${items.length}</span></summary><div>${items.map(type=>`<a href="#${typeId(type)}" data-api-type="${escapeHtml(type.fullName)}"><img src="icons/${escapeHtml(type.icon)}.png" alt="">${escapeHtml(type.name)}</a>`).join('')}</div></details>`).join('')}</div></details>`;
   }).join('');
   container.querySelectorAll('[data-api-type]').forEach(link=>link.addEventListener('click',event=>{
     event.preventDefault();

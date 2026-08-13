@@ -32,9 +32,7 @@ namespace GameSystems.Abilities.Conditions
             bool geometricallyAbove = IsGeometricallyAbove(contact);
             // CharacterController contact normals can briefly point sideways on a
             // curved body. Feet placement is the stable signal for a stomp.
-            bool isTop = geometricallyAbove &&
-                         (contact.Normal.y >= topNormal || contact.Other.Motor == null ||
-                          contact.Other.Motor.Result.Velocity.y <= .12f);
+            bool isTop = geometricallyAbove;
             return orientation switch
             {
                 CharacterContactOrientation.Top => isTop,
@@ -56,11 +54,15 @@ namespace GameSystems.Abilities.Conditions
             float previousFeetY = feetY - verticalVelocity * Mathf.Max(Time.deltaTime, 1f / 120f);
             float radius = otherController != null ? otherController.radius : .18f;
             Vector3 position = contact.Other.transform.position;
-            bool horizontalOverlap = position.x >= bounds.min.x - radius * .35f &&
-                                     position.x <= bounds.max.x + radius * .35f &&
+            bool horizontalOverlap = position.x >= bounds.min.x - radius &&
+                                     position.x <= bounds.max.x + radius &&
                                      position.z >= bounds.min.z - radius &&
                                      position.z <= bounds.max.z + radius;
-            return horizontalOverlap && Mathf.Max(feetY, previousFeetY) >= bounds.max.y - topBandBelow &&
+            bool feetAboveCenter = Mathf.Max(feetY, previousFeetY) >= bounds.center.y;
+            bool reachedTopBand = Mathf.Max(feetY, previousFeetY) >= bounds.max.y - topBandBelow;
+            bool upperSurfaceContact = contact.Point.y >= bounds.center.y + bounds.extents.y * .25f &&
+                                       contact.Normal.y >= -topNormal;
+            return horizontalOverlap && feetAboveCenter && (reachedTopBand || upperSurfaceContact) &&
                    feetY <= bounds.max.y + topBandAbove;
         }
     }
