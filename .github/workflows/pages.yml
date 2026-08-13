@@ -1,8 +1,12 @@
-name: Publish documentation
+name: Publish GameSystems Documentation
 
 on:
   push:
     branches: [main]
+    paths:
+      - "Assets/GameSystems/**"
+      - "Documentation/**"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -11,7 +15,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: gamesystems-pages
   cancel-in-progress: true
 
 jobs:
@@ -22,10 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Generate API reference
+        run: ruby Documentation/generate-api.rb
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: Documentation
-      - name: Deploy to GitHub Pages
+      - name: Deploy documentation
         id: deployment
         uses: actions/deploy-pages@v4
