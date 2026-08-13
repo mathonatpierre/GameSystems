@@ -89,6 +89,44 @@ def module_name(path)
   relative.split(File::SEPARATOR).first
 end
 
+MODULE_ICONS = {
+  "Abilities" => "abilities", "Characters" => "motor", "Core" => "core",
+  "Feedbacks" => "feedbacks", "Hooks" => "hooks", "LevelGeneration" => "level-generation",
+  "Playables" => "playables", "Sequencing" => "core", "Stats" => "stats"
+}.freeze
+
+def namespace_module(namespace)
+  namespace.split(".")[1] || "Core"
+end
+
+def icon_name(type)
+  name = type[:name]
+  namespace = type[:namespace]
+  return "ability-set" if name == "AbilitySet"
+  return "abilities" if name == "CharacterAIDefinition"
+  return "abilities" if name == "SequenceAbilityDefinition"
+  return "playables" if %w[ProceduralAnimationClip AnimationClipAsset].include?(name)
+  return "core" if name == "GameActionSequenceAsset"
+  return "hooks" if name == "HookId"
+  return "motor" if name.include?("Locomotion") || name.include?("Motor")
+  return "effect" if name.include?("Reaction") || name.include?("Death") || name.include?("Respawn") || name.include?("Victory")
+  return "level-generation" if name == "LevelGenerationProfile"
+  return "platform-type" if name == "PlatformTypeDefinition"
+  return "character-stats" if name == "CharacterStatsDefinition"
+  return "formula" if name == "StatFormulaDefinition"
+  return "stat" if name == "StatDefinition"
+  return "attribute" if name == "AttributeDefinition"
+  return "condition" if name.include?("Condition")
+  return "effect" if name.include?("Effect")
+  return "input-map" if name.include?("InputMap")
+  return "feedback-sequence" if name == "FeedbackSequence"
+  return "feedback-asset" if name == "FeedbackAsset"
+  return "blend-1d" if name.include?("Blend1D")
+  return "blend-2d" if name.include?("Blend2D")
+  return "scene-hook" if name == "SceneHook"
+  MODULE_ICONS.fetch(namespace_module(namespace), "core")
+end
+
 def declared_members(source, body_start, body_end, type_name, kind)
   return source[(body_start + 1)...body_end].split(",").map(&:strip).reject(&:empty?).map {
     |value| { kind: "enum value", name: value.split(/[\s=]/).first, signature: value, visibility: "public", line: line_number(source, body_start) }
@@ -208,7 +246,34 @@ Dir.glob(File.join(SOURCE_ROOT, "**", "*.cs")).sort.each do |path|
   end
 end
 
-types.sort_by! { |type| [type[:module], type[:namespace], type[:name]] }
+by_full_name = types.to_h { |type| [type[:fullName], type] }
+by_short_name = types.group_by { |type| type[:name] }
+base_name = lambda do |type|
+  type[:declaration][/:\s*([A-Za-z_][A-Za-z0-9_.]*)/, 1]
+end
+inherits_from = lambda do |type, expected, visited = []|
+  base = base_name.call(type)
+  next false if base.nil? || visited.include?(type[:fullName])
+  next true if base == expected || base.end_with?(".#{expected}")
+  parent = by_full_name[base]
+  parent ||= by_short_name[base]&.one? ? by_short_name[base].first : nil
+  parent ? inherits_from.call(parent, expected, visited + [type[:fullName]]) : false
+end
+
+types.each do |type|
+  type[:apiModule] = namespace_module(type[:namespace])
+  type[:moduleIcon] = MODULE_ICONS.fetch(type[:apiModule], "core")
+  type[:category] = if inherits_from.call(type, "ScriptableObject")
+                      "Data"
+                    elsif inherits_from.call(type, "MonoBehaviour")
+                      "Runtime"
+                    else
+                      "Utilities & Interfaces"
+                    end
+  type[:icon] = icon_name(type)
+end
+
+types.sort_by! { |type| [type[:apiModule], type[:category], type[:namespace], type[:name]] }
 payload = {
   version: File.exist?(VERSION_FILE) ? File.read(VERSION_FILE).strip : "dev",
   generatedAt: Time.now.strftime("%d/%m/%Y à %H:%M:%S %Z"),
