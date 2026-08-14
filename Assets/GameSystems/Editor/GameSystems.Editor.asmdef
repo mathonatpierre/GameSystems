@@ -10,7 +10,8 @@
     "GameSystems.Hooks",
     "GameSystems.LevelGeneration",
     "GameSystems.Playables",
-    "GameSystems.Stats"
+    "GameSystems.Stats",
+    "GameSystems.VFX"
   ],
   "includePlatforms": ["Editor"],
   "autoReferenced": true

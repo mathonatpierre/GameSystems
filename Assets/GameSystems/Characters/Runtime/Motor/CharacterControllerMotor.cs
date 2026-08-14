@@ -1,13 +1,15 @@
 using UnityEngine;
 using GameSystems.Abilities;
 using UnityEngine.Scripting.APIUpdating;
+using GameSystems.Playables;
 
 namespace GameSystems.Characters
 {
     [MovedFrom(true, "GameSystems.Abilities", "GameSystems.Abilities", "CharacterControllerMotor")]
     [DefaultExecutionOrder(-200)]
     [RequireComponent(typeof(CharacterController))]
-    public sealed class CharacterControllerMotor : MonoBehaviour, ICharacterMotor, ICharacterMotorControl
+    public sealed class CharacterControllerMotor : MonoBehaviour, ICharacterMotor, ICharacterMotorControl,
+        ICharacterSurfaceFrame, ICharacterSurfaceAlignmentControl, IPlayablePostProcessor
     {
         [SerializeField, Min(0f)] float groundProbeDistance = .045f;
         [SerializeField, Range(0f, 1f)] float minimumGroundNormal = .62f;
@@ -16,23 +18,81 @@ namespace GameSystems.Characters
         [SerializeField, Min(0f), Tooltip("Gravity used when no active action supplies one.")]
         float defaultGravity = 18f;
         [SerializeField, Min(0f)] float defaultMaximumFallSpeed = 24f;
+        [SerializeField] Transform visualRoot;
+        [SerializeField, Min(.01f)] float surfaceAlignmentSharpness = 18f;
+        [SerializeField, Min(0f)] float facingDeadZone = .04f;
 
         CharacterController controller;
         CharacterMotorCommands commands;
         CharacterMotorResult result;
         Vector3 velocity;
+        Vector3 surfaceForward = Vector3.right;
+        float facingSign = 1f;
+        bool followSurfaceForward;
+        Vector3 forcedSurfaceUp = Vector3.up;
+        Vector3 forcedSurfaceForward = Vector3.right;
+        GroundContact forcedGround;
+        bool hasForcedGround;
+        bool surfaceConstrained;
+        Quaternion defaultRootRotation;
         float airTime;
         CharacterAbilityController abilities;
+        UnityPlayableAnimationPlayer animationPlayer;
         [SerializeField] CharacterCheckpointService checkpoints = new();
 
         public CharacterMotorCommands Commands { get => commands; set => commands = value; }
         public CharacterMotorResult Result => result;
         public Vector3 Velocity => velocity;
+        public void ConfigureVisualRoot(Transform value) => visualRoot = value;
+        public void SetFollowSurfaceForward(bool value) => followSurfaceForward = value;
+        public void SetSurfaceFrame(Vector3 up, Vector3 forward)
+        {
+            if (up.sqrMagnitude > .5f) forcedSurfaceUp = up.normalized;
+            if (forward.sqrMagnitude > .5f) forcedSurfaceForward = forward.normalized;
+        }
+        public void SetSurfaceGround(Collider collider, Vector3 point, Vector3 normal)
+        {
+            forcedGround = new GroundContact(true, collider, point, normal);
+            hasForcedGround = true;
+        }
+        public void ClearSurfaceGround() { hasForcedGround = false; forcedGround = default; }
+        public void SetSurfaceConstraint(bool value) => surfaceConstrained = value;
+        public void SetCollisionFrame(bool aligned, Vector3 up, Vector3 forward)
+        {
+            Quaternion rotation = aligned && up.sqrMagnitude > .5f && forward.sqrMagnitude > .5f
+                ? Quaternion.LookRotation(forward.normalized, up.normalized)
+                : defaultRootRotation;
+            bool enabledBefore = controller != null && controller.enabled;
+            if (enabledBefore) controller.enabled = false;
+            transform.rotation = rotation;
+            if (enabledBefore) controller.enabled = true;
+        }
+        public void MoveConstrained(Vector3 targetPosition)
+        {
+            if (!CanMove()) return;
+            controller.Move(targetPosition - transform.position);
+        }
+        public Vector3 SurfaceUp => followSurfaceForward ? forcedSurfaceUp :
+            result.Ground.IsGrounded && result.Ground.Normal.sqrMagnitude > .5f
+            ? result.Ground.Normal.normalized : Vector3.up;
+        public Vector3 SurfaceForward
+        {
+            get
+            {
+                Vector3 direction = Vector3.ProjectOnPlane(
+                    followSurfaceForward ? forcedSurfaceForward : surfaceForward, SurfaceUp);
+                if (direction.sqrMagnitude < .001f)
+                    direction = Vector3.ProjectOnPlane(transform.right, SurfaceUp);
+                return direction.sqrMagnitude > .001f ? direction.normalized : transform.right;
+            }
+        }
 
         void Awake()
         {
             controller = GetComponent<CharacterController>();
+            defaultRootRotation = transform.rotation;
             abilities = GetComponent<CharacterAbilityController>();
+            animationPlayer = GetComponent<UnityPlayableAnimationPlayer>();
             checkpoints ??= new CharacterCheckpointService();
             checkpoints.Configure(transform, this);
             abilities?.Context?.Bind<ICharacterCheckpointService>(checkpoints);
@@ -40,10 +100,6 @@ namespace GameSystems.Characters
             result = new CharacterMotorResult(Vector3.zero, default, default, false, 0f, 0f);
             InitializeGroundContact();
         }
-
-        // Run a second ground initialization after every scene object's Awake. This
-        // covers platforms generated during another component's initialization.
-        void Start() => InitializeGroundContact();
 
         void Update()
         {
@@ -57,45 +113,11 @@ namespace GameSystems.Characters
         void InitializeGroundContact()
         {
             if (controller == null) return;
-
-            // A freshly loaded character used to start with its feet exactly on the
-            // platform plane. Depending on the first physics update this could be
-            // interpreted as either overlap or no contact, rejecting Jump until an
-            // external impulse lifted Lennie and made her land again.
-            bool wasEnabled = controller.enabled;
-            controller.enabled = false;
-            Physics.SyncTransforms();
-
-            Vector3 feet = transform.position + Vector3.up *
-                (controller.center.y - controller.height * .5f);
-            RaycastHit[] hits = Physics.RaycastAll(feet + Vector3.up * .6f,
-                Vector3.down, 1.25f, ~0, QueryTriggerInteraction.Ignore);
-            RaycastHit nearest = default;
-            float nearestDistance = float.PositiveInfinity;
-            for (int i = 0; i < hits.Length; i++)
-            {
-                RaycastHit hit = hits[i];
-                if (hit.collider == null || hit.transform.IsChildOf(transform) ||
-                    hit.normal.y < minimumGroundNormal || hit.distance >= nearestDistance)
-                    continue;
-                nearest = hit;
-                nearestDistance = hit.distance;
-            }
-
-            if (nearest.collider != null)
-            {
-                const float skinClearance = .025f;
-                float feetOffset = controller.center.y - controller.height * .5f;
-                Vector3 position = transform.position;
-                position.y = nearest.point.y - feetOffset + skinClearance;
-                transform.position = position;
-                result = new CharacterMotorResult(Vector3.zero,
-                    new GroundContact(true, nearest.collider, nearest.point, nearest.normal),
-                    default, true, 0f, 0f);
-            }
-
-            controller.enabled = wasEnabled;
-            Physics.SyncTransforms();
+            if (!CharacterGroundPlacement.PlaceOnGround(transform, controller,
+                    minimumGroundNormal: minimumGroundNormal)) return;
+            GroundContact ground = ProbeGround(true);
+            result = new CharacterMotorResult(Vector3.zero, ground, default,
+                ground.IsGrounded, 0f, 0f);
         }
 
         public void ReinitializeGroundContact() => InitializeGroundContact();
@@ -104,6 +126,14 @@ namespace GameSystems.Characters
         {
             if (!CanMove()) return;
             bool wasGrounded = result.Ground.IsGrounded;
+
+            if (surfaceConstrained && hasForcedGround)
+            {
+                velocity = Vector3.zero;
+                result = new CharacterMotorResult(Vector3.zero, forcedGround, default,
+                    wasGrounded, 0f, 0f);
+                return;
+            }
 
             if (wasGrounded && result.Ground.Collider != null)
             {
@@ -151,6 +181,17 @@ namespace GameSystems.Characters
             CollisionFlags flags = controller.Move(velocity * deltaTime);
             if (!CanMove()) return;
             GroundContact ground = ProbeGround((flags & CollisionFlags.Below) != 0);
+            if (hasForcedGround) ground = forcedGround;
+            ICharacterGroundOverride groundOverride = GetComponent(typeof(ICharacterGroundOverride))
+                as ICharacterGroundOverride;
+            if (groundOverride != null && groundOverride.TryGetGround(out GroundContact overriddenGround))
+                ground = overriddenGround;
+            else
+            {
+                Vector3 movementForward = Vector3.ProjectOnPlane(velocity, ground.IsGrounded
+                    ? ground.Normal : Vector3.up);
+                if (movementForward.sqrMagnitude > .001f) surfaceForward = movementForward.normalized;
+            }
             WallContact wall = ground.IsGrounded ? default : ProbeWall();
 
             float completedAirTime = airTime;
@@ -219,6 +260,27 @@ namespace GameSystems.Characters
 
         public void SetVelocity(Vector3 value) => velocity = value;
         public void SetVerticalVelocity(float value) => velocity.y = value;
+
+        public void ApplyPlayablePostProcess()
+        {
+            if (visualRoot == null) return;
+            if (!followSurfaceForward && Mathf.Abs(velocity.x) > facingDeadZone)
+                facingSign = Mathf.Sign(velocity.x);
+            Vector3 up = SurfaceUp;
+            Vector3 forward = followSurfaceForward
+                ? SurfaceForward
+                : Vector3.ProjectOnPlane(Vector3.right * facingSign, up);
+            if (forward.sqrMagnitude < .001f) forward = SurfaceForward * facingSign;
+            if (forward.sqrMagnitude < .001f) return;
+            float playableFacingOffset = animationPlayer?.Context
+                .GetFloat("PlayableFacingOffset") ?? 0f;
+            Quaternion target = Quaternion.LookRotation(forward.normalized, up) *
+                                Quaternion.AngleAxis(playableFacingOffset, Vector3.up);
+            visualRoot.rotation = followSurfaceForward
+                ? target
+                : Quaternion.Slerp(visualRoot.rotation, target,
+                    1f - Mathf.Exp(-surfaceAlignmentSharpness * Time.deltaTime));
+        }
 
         public void Teleport(Vector3 position)
         {

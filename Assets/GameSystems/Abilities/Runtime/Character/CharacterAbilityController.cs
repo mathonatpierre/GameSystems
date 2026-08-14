@@ -5,6 +5,7 @@ using GameSystems.Sequencing;
 using UnityEngine;
 
 using GameSystems.Characters;
+using GameSystems.Playables;
 
 namespace GameSystems.Abilities
 {
@@ -27,6 +28,8 @@ namespace GameSystems.Abilities
         bool locked;
         bool simulateMotorWhileLocked;
         AbilityAuthority exclusiveAuthorities;
+        UnityPlayableAnimationPlayer animationPlayer;
+        AbilityDefinition displayedAbility;
 
         public CharacterRuntimeContext Context => context;
         public IReadOnlyList<AbilityRuntime> ActiveAbilities => active;
@@ -53,6 +56,7 @@ namespace GameSystems.Abilities
             context.Motor = motor;
             context.Bind<IAbilityLockService>(this);
             context.Bind(GetComponent<GameSystems.Stats.CharacterStats>());
+            animationPlayer = GetComponent<UnityPlayableAnimationPlayer>();
             BuildAbilitySet();
             StartAutomaticAbilities();
         }
@@ -71,7 +75,41 @@ namespace GameSystems.Abilities
         }
 
         public void Submit(in AbilityRequest request) => requests.Add(request);
-        public void OnMotorStepped(in CharacterMotorResult result) => TickAfterMotor(result);
+        public void OnMotorStepped(in CharacterMotorResult result)
+        {
+            TickAfterMotor(result);
+            RefreshAnimation(result);
+        }
+
+        void RefreshAnimation(in CharacterMotorResult motorResult)
+        {
+            if (animationPlayer == null) return;
+            PlayableAnimationContext animation = animationPlayer.Context;
+            animation.SetFloat("Speed", Mathf.Abs(motorResult.Velocity.x));
+            animation.SetFloat("HorizontalSpeed", motorResult.Velocity.x);
+            animation.SetFloat("VerticalSpeed", motorResult.Velocity.y);
+            animation.SetFloat("Grounded", motorResult.Ground.IsGrounded ? 1f : 0f);
+            animation.SetFloat("JustLanded", motorResult.JustLanded ? 1f : 0f);
+            animation.SetFloat("JustLeftGround", motorResult.JustLeftGround ? 1f : 0f);
+            animation.SetFloat("AirTime", motorResult.AirTime);
+            AbilityDefinition winner = null;
+            int winnerPriority = int.MinValue;
+            for (int i = 0; i < active.Count; i++)
+            {
+                AbilityDefinition candidate = active[i].Definition;
+                AbilityAnimationIntent intent = candidate.AnimationIntent;
+                if (intent == null || !intent.IsValid) continue;
+                int priority = candidate.Priority + intent.PriorityOffset;
+                if (winner != null && priority <= winnerPriority) continue;
+                winner = candidate;
+                winnerPriority = priority;
+            }
+            if (winner == displayedAbility) return;
+            displayedAbility = winner;
+            AbilityAnimationIntent selected = winner?.AnimationIntent;
+            if (selected?.Animation != null && animationPlayer.Current != selected.Animation)
+                animationPlayer.Play(selected.Animation, selected.BlendDuration);
+        }
 
         public void BeginAbilityLock(bool keepSimulatingMotor)
         { locked = true; simulateMotorWhileLocked = keepSimulatingMotor; }

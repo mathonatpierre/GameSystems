@@ -3,12 +3,14 @@ using GameSystems.Hooks;
 using GameSystems.Abilities;
 using UnityEngine.Scripting.APIUpdating;
 using System.Collections.Generic;
+using GameSystems.Abilities.Actions;
 
 namespace GameSystems.Characters
 {
     [MovedFrom(true, "GameSystems.Abilities", "GameSystems.Abilities", "CharacterAIController")]
     [DisallowMultipleComponent, DefaultExecutionOrder(-400)]
-    public sealed class CharacterAIController : MonoBehaviour, ICharacterCommandSource, IHorizontalInputProvider
+    public sealed class CharacterAIController : MonoBehaviour, ICharacterCommandSource,
+        IHorizontalInputProvider, IAbilityInputState, IAbilityRequestObserver
     {
         [SerializeField] CharacterAIDefinition definition;
         [SerializeField, Tooltip("Optional fixed target. Without one, the nearest other ability controller is selected.")]
@@ -17,6 +19,18 @@ namespace GameSystems.Characters
         Transform currentTarget;
         double nextDecisionAt;
         readonly CharacterRequestBuffer pending = new();
+        Transform plannedLandingTarget;
+        Collider plannedLandingCollider;
+        ICharacterMovingPlatform plannedMovingPlatform;
+        Vector3 plannedLandingPoint;
+        float plannedHoldDuration;
+        float plannedFlightTime;
+        double planCreatedAt;
+        double holdUntil;
+        AbilityDefinition heldAbility;
+        bool wasAirborne;
+        float previousVerticalVelocity;
+        double suppressJumpRequestsUntil;
 
         public CharacterAIDefinition Definition => definition;
         public Transform CurrentTarget => currentTarget;
@@ -27,6 +41,11 @@ namespace GameSystems.Characters
             get
             {
                 if (currentTarget == null) return 0f;
+                if (!IsGrounded() && TryGetPlannedLandingX(out float landingX))
+                {
+                    float correction = landingX - transform.position.x;
+                    return Mathf.Abs(correction) < .06f ? 0f : Mathf.Clamp(correction * 2.1f, -1f, 1f);
+                }
                 if (!IsGrounded() && TryGetAirborneCharacterTarget(out Transform airborneTarget))
                 {
                     float correction = airborneTarget.position.x - transform.position.x;
@@ -61,6 +80,17 @@ namespace GameSystems.Characters
                 if (!mustBeBelow && delta.x * direction <= 0f) continue;
                 if (mustBeBelow ? delta.y > -.05f : Mathf.Abs(delta.y) > verticalTolerance) continue;
                 if (!mustBeBelow && Mathf.Abs(delta.y) > verticalTolerance) continue;
+                if (!mustBeBelow && requiredAbility != null)
+                {
+                    Collider targetCollider = candidate.GetComponent<Collider>();
+                    Vector3 landingPoint = targetCollider != null
+                        ? new Vector3(targetCollider.bounds.center.x, targetCollider.bounds.max.y,
+                            targetCollider.bounds.center.z)
+                        : candidate.transform.position;
+                    if (!TryPlanLanding(candidate.transform,
+                            landingPoint,
+                            targetCollider, null, direction)) continue;
+                }
                 return true;
             }
             return false;
@@ -76,19 +106,24 @@ namespace GameSystems.Characters
 
             CharacterAIDecision winner = null;
             CharacterAIDecision[] decisions = definition.Decisions;
-            for (int i = 0; i < decisions.Length; i++)
+            CharacterAIDecision[] ordered = (CharacterAIDecision[])decisions.Clone();
+            System.Array.Sort(ordered, (left, right) =>
+                (right?.Priority ?? int.MinValue).CompareTo(left?.Priority ?? int.MinValue));
+            for (int i = 0; i < ordered.Length; i++)
             {
-                CharacterAIDecision decision = decisions[i];
+                CharacterAIDecision decision = ordered[i];
                 if (decision == null) continue;
                 decision.ClearDebug();
                 if (!decision.Evaluate(LastContext, Time.timeAsDouble)) continue;
-                if (winner == null || decision.Priority > winner.Priority) winner = decision;
+                winner = decision;
+                break;
             }
             if (CurrentDecision != null && CurrentDecision != winner)
                 context.Abilities.Cancel(CurrentDecision.Ability);
             CurrentDecision = winner;
             if (winner == null) return;
             winner.MarkSelected(Time.timeAsDouble);
+            if (!IsGrounded() || Time.timeAsDouble < suppressJumpRequestsUntil) return;
             requests.Add(new AbilityRequest(winner.Ability, this, 1f, Time.timeAsDouble));
         }
 
@@ -96,9 +131,30 @@ namespace GameSystems.Characters
         {
             CharacterAbilityController abilities = GetComponent<CharacterAbilityController>();
             if (abilities == null) return;
+            bool airborne = abilities.Motor != null && !abilities.Motor.Result.Ground.IsGrounded;
+            float verticalVelocity = abilities.Motor?.Result.Velocity.y ?? 0f;
+            bool bounced = airborne && IsLastAcceptedBounce(abilities) && verticalVelocity > 2f &&
+                           verticalVelocity - previousVerticalVelocity > 2.5f;
+            if (bounced) HandleAirborneBounce(abilities);
+            if (wasAirborne && !airborne) ClearTraversalPlan();
+            wasAirborne = airborne;
+            previousVerticalVelocity = verticalVelocity;
             pending.Clear();
             CollectCommands(abilities.Context, pending);
             for (int i = 0; i < pending.Requests.Count; i++) abilities.Submit(pending.Requests[i]);
+        }
+
+        public bool AnyAbilityHeld => heldAbility != null && Time.timeAsDouble < holdUntil;
+
+        public bool IsHeld(AbilityDefinition ability) =>
+            ability != null && ability == heldAbility && Time.timeAsDouble < holdUntil;
+
+        public void OnAbilityRequestResolved(in AbilityRequest request, AbilityRequestResult result)
+        {
+            if (result != AbilityRequestResult.Accepted || plannedHoldDuration <= 0f ||
+                Time.timeAsDouble - planCreatedAt > .3d || !IsGrounded()) return;
+            heldAbility = request.Ability;
+            holdUntil = Time.timeAsDouble + plannedHoldDuration;
         }
 
         Transform ResolveTarget(CharacterRuntimeContext context)
@@ -144,13 +200,205 @@ namespace GameSystems.Characters
         bool TryFindLanding(float direction, out RaycastHit landing)
         {
             CharacterAITraversalSettings settings = definition.Traversal;
+            if (!TryGetTraversalCapabilities(out CharacterMovementCapabilities capabilities,
+                    out float initialSpeed))
+            { landing = default; return false; }
+            initialSpeed *= direction;
             for (float distance = settings.EdgeProbeDistance; distance <= settings.MaximumJumpReach;
                  distance += .22f)
             {
                 Vector3 origin = transform.position + Vector3.right * direction * distance + Vector3.up * 1.1f;
-                if (RaycastGround(origin, settings.LandingProbeDepth, out landing)) return true;
+                if (!RaycastGround(origin, settings.LandingProbeDepth, out landing)) continue;
+                ICharacterMovingPlatform moving = landing.collider.GetComponentInParent(
+                    typeof(ICharacterMovingPlatform)) as ICharacterMovingPlatform;
+                float rise = landing.point.y - transform.position.y;
+                if (!CharacterTraversalSolver.TryCalibrateRuntimeJump(capabilities, distance, rise,
+                        CharacterTraversalSolver.StandardJumpSafety, initialSpeed,
+                        out float holdDuration, out float flightTime)) continue;
+                if (moving == null)
+                {
+                    SetTraversalPlan(null, landing.collider, null, landing.point,
+                        holdDuration, flightTime);
+                    return true;
+                }
+                Bounds bounds = landing.collider.bounds;
+                float futureCenter = bounds.center.x + moving.PredictDisplacement(flightTime).x;
+                if (Mathf.Abs(origin.x - futureCenter) <= Mathf.Max(.12f, bounds.extents.x - .18f))
+                {
+                    SetTraversalPlan(null, landing.collider, moving,
+                        new Vector3(futureCenter, bounds.max.y, bounds.center.z), holdDuration, flightTime);
+                    return true;
+                }
+            }
+            if (TryFindArrivingMovingPlatform(direction, capabilities, initialSpeed, out landing)) return true;
+            landing = default;
+            return false;
+        }
+
+        bool TryFindArrivingMovingPlatform(float direction,
+            in CharacterMovementCapabilities capabilities, float initialSpeed, out RaycastHit landing)
+        {
+            CharacterAITraversalSettings settings = definition.Traversal;
+            Vector3 center = transform.position + Vector3.right * direction *
+                ((settings.EdgeProbeDistance + settings.MaximumJumpReach) * .5f);
+            Vector3 half = new((settings.MaximumJumpReach - settings.EdgeProbeDistance) * .65f,
+                settings.LandingProbeDepth * .5f, 1.5f);
+            Collider[] candidates = Physics.OverlapBox(center, half, Quaternion.identity,
+                definition.LineOfSightMask, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                Collider collider = candidates[i];
+                ICharacterMovingPlatform moving = collider.GetComponentInParent(
+                    typeof(ICharacterMovingPlatform)) as ICharacterMovingPlatform;
+                if (moving == null) continue;
+                Bounds bounds = collider.bounds;
+                float flightTime = CharacterTraversalSolver.TimeToTravelDistance(
+                    Mathf.Abs(bounds.center.x - transform.position.x), initialSpeed,
+                    capabilities.AirSpeed, capabilities.AirAcceleration);
+                float futureCenter = bounds.center.x;
+                float holdDuration = 0f;
+                for (int iteration = 0; iteration < 3; iteration++)
+                {
+                    futureCenter = bounds.center.x + moving.PredictDisplacement(flightTime).x;
+                    float predictedGap = Mathf.Abs(futureCenter - transform.position.x);
+                    float rise = bounds.max.y - transform.position.y;
+                    if (!CharacterTraversalSolver.TryCalibrateRuntimeJump(capabilities, predictedGap,
+                            rise, CharacterTraversalSolver.StandardJumpSafety, initialSpeed,
+                            out holdDuration, out flightTime))
+                    { flightTime = -1f; break; }
+                }
+                if (flightTime < 0f) continue;
+                float delta = (futureCenter - transform.position.x) * direction;
+                if (delta < settings.EdgeProbeDistance || delta > settings.MaximumJumpReach) continue;
+                SetTraversalPlan(null, collider, moving,
+                    new Vector3(futureCenter, bounds.max.y, bounds.center.z), holdDuration, flightTime);
+                landing = default;
+                return true;
             }
             landing = default;
+            return false;
+        }
+
+        bool TryGetTraversalCapabilities(out CharacterMovementCapabilities capabilities,
+            out float signedInitialSpeed)
+        {
+            CharacterAbilityController abilities = GetComponent<CharacterAbilityController>();
+            signedInitialSpeed = abilities?.Motor?.Result.Velocity.x ?? 0f;
+            capabilities = default;
+            return abilities != null && CharacterCapabilityResolver.TryResolve(abilities.AbilitySet,
+                GetComponent<CharacterController>()?.height ?? 1.1f,
+                GetComponent<CharacterController>()?.radius ?? .18f, .2f, out capabilities);
+        }
+
+        bool TryPlanLanding(Transform target, Vector3 point, Collider collider,
+            ICharacterMovingPlatform moving, float direction)
+        {
+            if (!TryGetTraversalCapabilities(out CharacterMovementCapabilities capabilities,
+                    out float initialSpeed)) return false;
+            float gap = Mathf.Abs(point.x - transform.position.x);
+            float rise = point.y - transform.position.y;
+            if (!CharacterTraversalSolver.TryCalibrateRuntimeJump(capabilities, gap, rise,
+                    CharacterTraversalSolver.StandardJumpSafety, initialSpeed * direction,
+                    out float hold, out float flight)) return false;
+            SetTraversalPlan(target, collider, moving, point, hold, flight);
+            return true;
+        }
+
+        void SetTraversalPlan(Transform target, Collider collider, ICharacterMovingPlatform moving,
+            Vector3 point, float holdDuration, float flightTime)
+        {
+            plannedLandingTarget = target;
+            plannedLandingCollider = collider;
+            plannedMovingPlatform = moving;
+            plannedLandingPoint = point;
+            plannedHoldDuration = holdDuration;
+            plannedFlightTime = flightTime;
+            planCreatedAt = Time.timeAsDouble;
+        }
+
+        bool TryGetPlannedLandingX(out float worldX)
+        {
+            if (plannedLandingTarget != null)
+            {
+                worldX = plannedLandingTarget.position.x;
+                return true;
+            }
+            if (plannedLandingCollider != null)
+            {
+                if (plannedMovingPlatform != null)
+                {
+                    CharacterAbilityController abilities = GetComponent<CharacterAbilityController>();
+                    float remaining = Mathf.Max(0f, plannedFlightTime - (abilities?.Motor?.Result.AirTime ?? 0f));
+                    worldX = plannedLandingCollider.bounds.center.x +
+                             plannedMovingPlatform.PredictDisplacement(remaining).x;
+                }
+                else worldX = plannedLandingPoint.x;
+                return true;
+            }
+            worldX = 0f;
+            return false;
+        }
+
+        void ClearTraversalPlan()
+        {
+            plannedLandingTarget = null;
+            plannedLandingCollider = null;
+            plannedMovingPlatform = null;
+            plannedHoldDuration = 0f;
+            plannedFlightTime = 0f;
+            heldAbility = null;
+            holdUntil = 0d;
+        }
+
+        void HandleAirborneBounce(CharacterAbilityController abilities)
+        {
+            // A bounce is already a new ballistic launch. Never request another jump
+            // from it; replace the enemy landing plan with a safe ground landing.
+            Collider excludedContact = plannedLandingCollider;
+            ClearTraversalPlan();
+            suppressJumpRequestsUntil = Time.timeAsDouble + .18d;
+            float direction = currentTarget == null ? Mathf.Sign(abilities.Motor.Result.Velocity.x) :
+                Mathf.Sign(currentTarget.position.x - transform.position.x);
+            if (Mathf.Approximately(direction, 0f)) direction = 1f;
+            TryPlanCurrentAirborneLanding(direction, abilities.Motor.Result.Velocity, excludedContact);
+        }
+
+        bool TryPlanCurrentAirborneLanding(float direction, Vector3 velocity, Collider excludedContact)
+        {
+            CharacterAITraversalSettings settings = definition.Traversal;
+            RaycastHit best = default;
+            float bestScore = float.MaxValue;
+            float horizontalSpeed = Mathf.Max(1.5f, Mathf.Abs(velocity.x));
+            for (float distance = settings.EdgeProbeDistance; distance <= settings.MaximumJumpReach * 1.6f;
+                 distance += .2f)
+            {
+                Vector3 origin = transform.position + Vector3.right * direction * distance +
+                                 Vector3.up * 1.2f;
+                if (!RaycastGround(origin, settings.LandingProbeDepth + 2f, out RaycastHit hit)) continue;
+                if (hit.collider == excludedContact ||
+                    (excludedContact != null && hit.transform.IsChildOf(excludedContact.transform))) continue;
+                float time = distance / horizontalSpeed;
+                float predictedY = transform.position.y + velocity.y * time - 9.25f * time * time;
+                float score = Mathf.Abs(predictedY - hit.point.y);
+                if (score >= bestScore) continue;
+                best = hit;
+                bestScore = score;
+            }
+            if (best.collider == null) return false;
+            ICharacterMovingPlatform moving = best.collider.GetComponentInParent(
+                typeof(ICharacterMovingPlatform)) as ICharacterMovingPlatform;
+            SetTraversalPlan(null, best.collider, moving, best.point, 0f,
+                Mathf.Abs(best.point.x - transform.position.x) / horizontalSpeed);
+            return true;
+        }
+
+        static bool IsLastAcceptedBounce(CharacterAbilityController abilities)
+        {
+            if (abilities.LastRequestResult != AbilityRequestResult.Accepted ||
+                abilities.LastRequestedAbility is not SequenceAbilityDefinition sequence) return false;
+            GameSystems.Sequencing.GameAction[] actions = sequence.Sequence.Actions;
+            for (int i = 0; i < actions.Length; i++)
+                if (actions[i] is BounceAction) return true;
             return false;
         }
 

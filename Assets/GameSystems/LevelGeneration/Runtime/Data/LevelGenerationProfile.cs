@@ -10,12 +10,14 @@ namespace GameSystems.LevelGeneration
         [SerializeField] LevelLayoutRules layout = new();
         [SerializeField] WallJumpGenerationRules wallJumps = new();
         [SerializeField] List<PlatformTypeDefinition> platformTypes = new();
+        [SerializeField] List<LevelFeatureDefinition> features = new();
 
         public int DefaultLength => layout.DefaultLength;
         public int DefaultDepth => layout.DefaultDepth;
         public LevelLayoutRules Layout => layout;
         public WallJumpGenerationRules WallJumps => wallJumps;
         public IReadOnlyList<PlatformTypeDefinition> PlatformTypes => platformTypes;
+        public IReadOnlyList<LevelFeatureDefinition> Features => features;
 
         public PlatformTypeDefinition Get(PlatformTypeId type)
         {
@@ -35,6 +37,12 @@ namespace GameSystems.LevelGeneration
             if (definitions != null) platformTypes.AddRange(definitions);
         }
 
+        public void ConfigureFeatures(IEnumerable<LevelFeatureDefinition> definitions)
+        {
+            features.Clear();
+            if (definitions != null) features.AddRange(definitions);
+        }
+
         void OnValidate()
         {
             var used = new HashSet<PlatformTypeId>();
@@ -44,6 +52,9 @@ namespace GameSystems.LevelGeneration
                 if (definition == null || !used.Add(definition.Type))
                     platformTypes.RemoveAt(i);
             }
+            for (int i = features.Count - 1; i >= 0; i--)
+                if (features[i] == null || features.IndexOf(features[i]) != i)
+                    features.RemoveAt(i);
         }
     }
 }

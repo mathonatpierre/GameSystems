@@ -8,6 +8,8 @@ namespace GameSystems.Sequencing
     {
         [SerializeField, Tooltip("Optional explicit target. Uses the context owner when empty.")] GameObject target;
         [SerializeField, Tooltip("Desired active state.")] bool active = true;
+        public SetGameObjectActiveAction() { }
+        public SetGameObjectActiveAction(bool value) => active = value;
         public override string Summary => $"Set {(target != null ? target.name : "owner")} active = {active.ToString().ToLowerInvariant()}";
         public override GameActionRuntime CreateRuntime() => new Runtime();
 

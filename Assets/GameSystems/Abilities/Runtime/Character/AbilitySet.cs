@@ -28,5 +28,12 @@ namespace GameSystems.Abilities
             return false;
         }
 
+        public void Configure(IEnumerable<AbilityDefinition> definitions)
+        {
+            abilities = definitions == null
+                ? Array.Empty<AbilityDefinition>()
+                : new List<AbilityDefinition>(definitions).ToArray();
+        }
+
     }
 }

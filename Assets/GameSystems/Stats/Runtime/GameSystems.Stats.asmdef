@@ -1,7 +1,7 @@
 {
   "name": "GameSystems.Stats",
   "rootNamespace": "GameSystems.Stats",
-  "references": [],
+  "references": ["GameSystems.Hooks", "GameSystems.Sequencing", "GameSystems.Feedbacks"],
   "autoReferenced": true,
   "noEngineReferences": false
 }

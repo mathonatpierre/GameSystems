@@ -1,22 +1,30 @@
 using System;
 using UnityEngine;
 using UnityEngine.Playables;
+using UnityEngine.Animations;
 
 namespace GameSystems.Playables
 {
     [CreateAssetMenu(menuName = "Game Systems/Playables/Procedural Animation Clip", fileName = "PLAYABLE_Procedural_")]
     public sealed class ProceduralAnimationClip : PlayableAnimationAsset
     {
+        [SerializeField] AnimationClipSettings baseAnimation = new();
         [SerializeReference] ProceduralAnimationTrack[] tracks;
         public int TrackCount => tracks?.Length ?? 0;
 
-        internal override PlayableAnimationRuntime CreateRuntime(PlayableGraph graph) => new Runtime(tracks);
+        internal override PlayableAnimationRuntime CreateRuntime(PlayableGraph graph) =>
+            new Runtime(graph, baseAnimation, tracks);
 
         sealed class Runtime : PlayableAnimationRuntime
         {
             readonly ProceduralAnimationTrack[] tracks;
-            public Runtime(ProceduralAnimationTrack[] source) : base(Playable.Null)
+            readonly AnimationClipSettings baseAnimation;
+            readonly AnimationClipPlayable clip;
+            public Runtime(PlayableGraph graph, AnimationClipSettings animation,
+                ProceduralAnimationTrack[] source) : base(CreateBase(graph, animation, out AnimationClipPlayable clip))
             {
+                baseAnimation = animation;
+                this.clip = clip;
                 if (source == null) { tracks = Array.Empty<ProceduralAnimationTrack>(); return; }
                 tracks = new ProceduralAnimationTrack[source.Length];
                 for (int i = 0; i < source.Length; i++)
@@ -24,12 +32,35 @@ namespace GameSystems.Playables
             }
             public override void Evaluate(PlayableAnimationContext context)
             {
+                if (baseAnimation?.Loop == true && baseAnimation.Clip != null)
+                {
+                    double start = baseAnimation.Clip.length * baseAnimation.NormalizedStart;
+                    double end = baseAnimation.Clip.length * baseAnimation.NormalizedEnd;
+                    double duration = Mathf.Max(.001f, (float)(end - start));
+                    if (clip.GetTime() >= end)
+                        clip.SetTime(start + (clip.GetTime() - start) % duration);
+                }
                 float weight = context.GetFloat("PlayableWeight", 1f);
                 for (int i = 0; i < tracks.Length; i++) tracks[i]?.Evaluate(context, Time.deltaTime, weight);
             }
             public override void Restart()
             {
+                if (baseAnimation?.Clip != null)
+                {
+                    clip.SetTime(baseAnimation.Clip.length * baseAnimation.NormalizedStart);
+                    clip.SetDone(false);
+                }
                 for (int i = 0; i < tracks.Length; i++) tracks[i]?.ResetRuntime();
+            }
+
+            static Playable CreateBase(PlayableGraph graph, AnimationClipSettings animation,
+                out AnimationClipPlayable playable)
+            {
+                playable = AnimationClipPlayable.Create(graph, animation?.Clip);
+                playable.SetApplyFootIK(false);
+                playable.SetApplyPlayableIK(false);
+                playable.SetSpeed(animation?.Speed ?? 1f);
+                return playable;
             }
         }
     }
@@ -144,6 +175,28 @@ namespace GameSystems.Playables
             target.localRotation = Quaternion.Slerp(frameBase,
                 frameBase * Quaternion.Euler(0f, 0f, angle), weight);
         }
+        internal override void ResetRuntime() { base.ResetRuntime(); initialized = false; }
+    }
+
+    [Serializable]
+    public sealed class GlidePoseTrack : ProceduralAnimationTrack
+    {
+        [SerializeField] Vector3 eulerOffset = new(0f, 0f, -18f);
+        [SerializeField, Min(0f)] float breathingDegrees = 2.5f;
+        [SerializeField, Min(.01f)] float breathingSpeed = 1.6f;
+        [NonSerialized] Quaternion baseline;
+        [NonSerialized] bool initialized;
+
+        internal override void Evaluate(PlayableAnimationContext context, float deltaTime, float weight)
+        {
+            if (!Resolve(context)) return;
+            if (!initialized) { baseline = target.localRotation; initialized = true; }
+            Quaternion frameBase = FrameBase(context, target.localRotation, baseline);
+            float breath = Mathf.Sin(Time.time * breathingSpeed * Mathf.PI * 2f) * breathingDegrees;
+            Quaternion pose = frameBase * Quaternion.Euler(eulerOffset + Vector3.forward * breath);
+            target.localRotation = Quaternion.Slerp(frameBase, pose, weight);
+        }
+
         internal override void ResetRuntime() { base.ResetRuntime(); initialized = false; }
     }
 }

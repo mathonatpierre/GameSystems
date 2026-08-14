@@ -54,6 +54,16 @@ namespace GameSystems.Playables
             {
                 int count = samples.Count;
                 if (count == 0) return;
+                for (int i = 0; i < count; i++)
+                {
+                    AnimationClipSettings settings = samples[i]?.Animation;
+                    if (settings?.Loop != true || settings.Clip == null) continue;
+                    double start = settings.Clip.length * settings.NormalizedStart;
+                    double end = settings.Clip.length * settings.NormalizedEnd;
+                    double duration = Mathf.Max(.001f, (float)(end - start));
+                    if (clips[i].GetTime() >= end)
+                        clips[i].SetTime(start + (clips[i].GetTime() - start) % duration);
+                }
                 for (int i = 0; i < count; i++) mixer.SetInputWeight(i, 0f);
                 float value = context.GetFloat(parameter);
                 if (count == 1 || value <= samples[0].Threshold) { mixer.SetInputWeight(0, 1f); return; }

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -21,6 +22,9 @@ namespace GameSystems.Abilities.Tests
         Transform target;
         Quaternion previous;
         public float AccumulatedDegrees { get; private set; }
+        public float LargestFrameDegrees { get; private set; }
+        public float LargestSurfaceError { get; private set; }
+        ICharacterSurfaceFrame surfaceFrame;
 
         public void Configure(Transform value)
         {
@@ -28,16 +32,129 @@ namespace GameSystems.Abilities.Tests
             previous = target != null ? target.localRotation : Quaternion.identity;
         }
 
+        public void Configure(Transform value, ICharacterSurfaceFrame frame)
+        {
+            Configure(value);
+            surfaceFrame = frame;
+        }
+
         void LateUpdate()
         {
             if (target == null) return;
-            AccumulatedDegrees += Quaternion.Angle(previous, target.localRotation);
+            float degrees = Quaternion.Angle(previous, target.localRotation);
+            AccumulatedDegrees += degrees;
+            LargestFrameDegrees = Mathf.Max(LargestFrameDegrees, degrees);
+            if (surfaceFrame != null)
+                LargestSurfaceError = Mathf.Max(LargestSurfaceError,
+                    Vector3.Angle(target.up, surfaceFrame.SurfaceUp));
             previous = target.localRotation;
         }
     }
 
     public sealed class SequenceAbilitySmokeTests
     {
+        [UnityTest]
+        public IEnumerator LevelFive_GliderAdvancesWithoutVisualFlips()
+        {
+            yield return SceneManager.LoadSceneAsync("Level_05", LoadSceneMode.Single);
+            yield return null;
+            HookId playerHook = AssetDatabase.LoadAssetAtPath<HookId>(
+                "Assets/Lennie/Data/Identity/HOOK_Player.asset");
+            CharacterAbilityController brain = HookRegistry.GetComponent<CharacterAbilityController>(playerHook);
+            Assert.That(brain, Is.Not.Null);
+            PlayerAbilityInputSource input = brain.GetComponent<PlayerAbilityInputSource>();
+            if (input != null) input.enabled = false;
+            PlayableAnimationBindings bindings = brain.GetComponent<PlayableAnimationBindings>();
+            Transform visual = bindings != null ? bindings.Resolve("Body") : null;
+            Assert.That(visual, Is.Not.Null);
+
+            System.Type surfaceType = System.Type.GetType(
+                "Lennie.Environment.SplineGliderSurface, Assembly-CSharp");
+            Component surface = Object.FindFirstObjectByType(surfaceType) as Component;
+            Assert.That(surface, Is.Not.Null, "Level 5 contains no spline glider surface.");
+            CharacterController characterController = brain.GetComponent<CharacterController>();
+            if (characterController != null) characterController.enabled = false;
+            brain.transform.position = surface.transform.position + Vector3.up * .03f;
+            if (characterController != null) characterController.enabled = true;
+            Physics.SyncTransforms();
+            float deadline = Time.realtimeSinceStartup + 3f;
+            bool rideActive = false;
+            while (Time.realtimeSinceStartup < deadline && !rideActive)
+            {
+                rideActive = (bool)(surfaceType.GetProperty("IsRideActive")?.GetValue(surface) ?? false);
+                yield return null;
+            }
+            Assert.That(rideActive, Is.True, "Lennie never entered the spline ride.");
+
+            yield return new WaitForSeconds(.1f);
+            AbilityDefinition jump = AssetDatabase.LoadAssetAtPath<AbilityDefinition>(
+                "Assets/Lennie/Data/Characters/Lennie/ABILITY_Jump_Modular.asset");
+            Assert.That(brain.Request(jump, brain), Is.True,
+                $"Jump was rejected during Glide: {brain.LastRequestResult}.");
+
+            Vector3 start = brain.transform.position;
+            ICharacterSurfaceFrame surfaceFrame = brain.Motor as ICharacterSurfaceFrame;
+            Assert.That(surfaceFrame, Is.Not.Null);
+            LateRotationProbe visualProbe = brain.gameObject.AddComponent<LateRotationProbe>();
+            visualProbe.Configure(visual, surfaceFrame);
+            Animator animator = brain.GetComponentInChildren<Animator>();
+            Transform hips = animator != null && animator.isHuman
+                ? animator.GetBoneTransform(HumanBodyBones.Hips) : null;
+            LateRotationProbe hipsProbe = hips != null
+                ? brain.gameObject.AddComponent<LateRotationProbe>() : null;
+            hipsProbe?.Configure(hips);
+            float rideDeadline = Time.time + 3f;
+            int frame = 0;
+            while (Time.time < rideDeadline)
+            {
+                yield return null;
+                if (frame % 30 == 0)
+                {
+                    object progress = surfaceType.GetProperty("RideProgress")?.GetValue(surface);
+                    string active = string.Join(",", brain.ActiveAbilities.Select(x => x.Definition.name));
+                    Debug.Log($"[Glider Diagnostic] frame={frame}, position={brain.transform.position}, " +
+                              $"velocity={brain.Motor.Result.Velocity}, grounded={brain.Motor.Result.Ground.IsGrounded}, " +
+                              $"progress={progress}, active=[{active}]");
+                }
+                frame++;
+            }
+
+            float moved = Vector3.Distance(start, brain.transform.position);
+            Assert.That(moved, Is.GreaterThan(1f), $"Glider stalled after moving {moved:0.###}m.");
+            Assert.That(visualProbe.LargestFrameDegrees, Is.LessThan(80f),
+                $"Visual orientation flipped by {visualProbe.LargestFrameDegrees:0.##} degrees in one frame.");
+            Assert.That(visualProbe.LargestSurfaceError, Is.LessThan(1f),
+                $"Visual root diverged from the motor surface by {visualProbe.LargestSurfaceError:0.##} degrees.");
+            if (hipsProbe != null)
+                Assert.That(hipsProbe.LargestFrameDegrees, Is.LessThan(80f),
+                    $"Glide pose flipped the hips by {hipsProbe.LargestFrameDegrees:0.##} degrees in one frame.");
+
+            float trackLength = (float)(surfaceType.GetProperty("TrackLength")?.GetValue(surface) ?? 0f);
+            surfaceType.GetMethod("SetRideDistance")?.Invoke(surface, new object[] { trackLength });
+            yield return new WaitForSeconds(.2f);
+            bool glideStillActive = brain.ActiveAbilities.Any(x => x.Definition.name == "ABILITY_Glide");
+            bool activeSurface = (bool)(surfaceType.GetProperty("IsRideActive")?.GetValue(surface) ?? false);
+            Assert.That(glideStillActive, Is.False, "Glide ability stayed active at the end of the track.");
+            Assert.That(activeSurface, Is.False, "Spline retained its ride session at track end.");
+
+            System.Type gemType = System.Type.GetType("Lennie.Environment.GliderGem, Assembly-CSharp");
+            Component gem = Object.FindFirstObjectByType(gemType) as Component;
+            Assert.That(gem, Is.Not.Null, "Level 5 contains no collectible gem.");
+            CharacterResources resources = brain.GetComponent<CharacterResources>();
+            ResourceDefinition gemResource = AssetDatabase.LoadAssetAtPath<ResourceDefinition>(
+                "Assets/Lennie/Data/Characters/Lennie/RESOURCE_Gem.asset");
+            int gemsBefore = resources.Get(gemResource);
+            if (characterController != null) characterController.enabled = false;
+            brain.transform.position = gem.transform.position;
+            if (characterController != null) characterController.enabled = true;
+            Physics.SyncTransforms();
+            yield return new WaitForFixedUpdate();
+            yield return new WaitForFixedUpdate();
+            Assert.That(gem.gameObject.activeSelf, Is.False, "Gem overlap did not consume the pickup.");
+            Assert.That(resources.Get(gemResource), Is.EqualTo(gemsBefore + 1),
+                "Gem pickup did not increment the character resource.");
+        }
+
         [UnityTest]
         public IEnumerator InterruptedFreeze_RestoresTimeScale()
         {
@@ -186,7 +303,6 @@ namespace GameSystems.Abilities.Tests
             Assert.That(concreteAnimationPlayer.Context.ResolveBinding("Body"), Is.EqualTo(concreteBody),
                 "Concrete Ball procedural animation context did not resolve its Body binding.");
             concreteBallAI.enabled = false;
-            concreteBallBrain.GetComponent<PlayableCharacterAnimationDriver>().enabled = false;
             concreteAnimationPlayer.Context.SetFloat("HorizontalSpeed", 1f);
             concreteAnimationPlayer.EvaluateNow();
             yield return null;

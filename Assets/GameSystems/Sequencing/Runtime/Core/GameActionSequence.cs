@@ -21,5 +21,13 @@ namespace GameSystems.Sequencing
             runner.Initialize(Actions, context);
             return runner;
         }
+
+        public void Configure(GameCondition[] requiredConditions, GameAction[] orderedActions,
+            GameConditionMode mode = GameConditionMode.All)
+        {
+            conditionMode = mode;
+            conditions = requiredConditions ?? Array.Empty<GameCondition>();
+            actions = orderedActions ?? Array.Empty<GameAction>();
+        }
     }
 }

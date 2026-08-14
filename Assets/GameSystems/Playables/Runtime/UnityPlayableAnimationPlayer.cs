@@ -23,7 +23,9 @@ namespace GameSystems.Playables
         PlayableGraph graph;
         AnimationMixerPlayable rootMixer;
         PlayableAnimationAsset current;
+        IPlayablePostProcessor[] postProcessors;
         float currentBlendDuration = .08f;
+        float currentFacingOffset;
 
         public PlayableAnimationContext Context => context;
         public PlayableAnimationAsset Current => current;
@@ -81,6 +83,11 @@ namespace GameSystems.Playables
                 output.SetSourcePlayable(rootMixer);
             }
             context.Configure(gameObject, GetComponent<PlayableAnimationBindings>(), animator != null);
+            MonoBehaviour[] behaviours = GetComponents<MonoBehaviour>();
+            var processors = new List<IPlayablePostProcessor>();
+            for (int i = 0; i < behaviours.Length; i++)
+                if (behaviours[i] is IPlayablePostProcessor processor) processors.Add(processor);
+            postProcessors = processors.ToArray();
             if (animator != null) graph.Play();
         }
 
@@ -107,6 +114,8 @@ namespace GameSystems.Playables
             if (!graph.IsValid() || current == null || !entries.TryGetValue(current, out Entry selected)) return;
             EvaluationCount++;
             float blend = 1f - Mathf.Exp(-Time.deltaTime / Mathf.Max(.001f, currentBlendDuration));
+            currentFacingOffset = Mathf.LerpAngle(currentFacingOffset, current.FacingOffset, blend);
+            context.SetFloat("PlayableFacingOffset", currentFacingOffset);
             foreach (Entry entry in entries.Values)
             {
                 float target = entry == selected ? 1f : 0f;
@@ -115,12 +124,14 @@ namespace GameSystems.Playables
                 context.SetFloat("PlayableWeight", entry.Weight);
                 entry.Runtime.Evaluate(context);
             }
+            for (int i = 0; i < postProcessors.Length; i++)
+                postProcessors[i]?.ApplyPlayablePostProcess();
         }
 
         void OnDisable()
         {
             if (graph.IsValid()) graph.Destroy();
-            entries.Clear(); current = null;
+            entries.Clear(); current = null; currentFacingOffset = 0f;
         }
     }
 }
