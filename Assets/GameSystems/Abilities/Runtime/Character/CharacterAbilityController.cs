@@ -85,9 +85,14 @@ namespace GameSystems.Abilities
         {
             if (animationPlayer == null) return;
             PlayableAnimationContext animation = animationPlayer.Context;
-            animation.SetFloat("Speed", Mathf.Abs(motorResult.Velocity.x));
-            animation.SetFloat("HorizontalSpeed", motorResult.Velocity.x);
-            animation.SetFloat("VerticalSpeed", motorResult.Velocity.y);
+            ICharacterGravityFrame gravityFrame = motor as ICharacterGravityFrame;
+            Vector3 up = gravityFrame?.UpDirection ?? Vector3.up;
+            Vector3 forward = motor is ICharacterSurfaceFrame surfaceFrame
+                ? surfaceFrame.SurfaceForward : Vector3.right;
+            float horizontalSpeed = Vector3.Dot(motorResult.Velocity, forward);
+            animation.SetFloat("Speed", Mathf.Abs(horizontalSpeed));
+            animation.SetFloat("HorizontalSpeed", horizontalSpeed);
+            animation.SetFloat("VerticalSpeed", Vector3.Dot(motorResult.Velocity, up));
             animation.SetFloat("Grounded", motorResult.Ground.IsGrounded ? 1f : 0f);
             animation.SetFloat("JustLanded", motorResult.JustLanded ? 1f : 0f);
             animation.SetFloat("JustLeftGround", motorResult.JustLeftGround ? 1f : 0f);

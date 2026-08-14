@@ -9,7 +9,8 @@ namespace GameSystems.Characters
     [DefaultExecutionOrder(-200)]
     [RequireComponent(typeof(CharacterController))]
     public sealed class CharacterControllerMotor : MonoBehaviour, ICharacterMotor, ICharacterMotorControl,
-        ICharacterSurfaceFrame, ICharacterSurfaceAlignmentControl, IPlayablePostProcessor
+        ICharacterGravityFrame, ICharacterSurfaceFrame, ICharacterSurfaceAlignmentControl,
+        IPlayablePostProcessor
     {
         [SerializeField, Min(0f)] float groundProbeDistance = .045f;
         [SerializeField, Range(0f, 1f)] float minimumGroundNormal = .62f;
@@ -18,7 +19,11 @@ namespace GameSystems.Characters
         [SerializeField, Min(0f), Tooltip("Gravity used when no active action supplies one.")]
         float defaultGravity = 18f;
         [SerializeField, Min(0f)] float defaultMaximumFallSpeed = 24f;
+        [SerializeField, Tooltip("World-space direction used when actions do not supply gravity.")]
+        Vector3 defaultGravityDirection = Vector3.down;
         [SerializeField] Transform visualRoot;
+        [SerializeField, Tooltip("Normal of the 2.5D movement plane used to derive a stable lateral axis.")]
+        Vector3 movementPlaneNormal = Vector3.forward;
         [SerializeField, Min(.01f)] float surfaceAlignmentSharpness = 18f;
         [SerializeField, Min(0f)] float facingDeadZone = .04f;
 
@@ -26,6 +31,7 @@ namespace GameSystems.Characters
         CharacterMotorCommands commands;
         CharacterMotorResult result;
         Vector3 velocity;
+        Vector3 gravityDirection = Vector3.down;
         Vector3 surfaceForward = Vector3.right;
         float facingSign = 1f;
         bool followSurfaceForward;
@@ -43,6 +49,9 @@ namespace GameSystems.Characters
         public CharacterMotorCommands Commands { get => commands; set => commands = value; }
         public CharacterMotorResult Result => result;
         public Vector3 Velocity => velocity;
+        public Vector3 GravityDirection => gravityDirection;
+        public Vector3 UpDirection => -gravityDirection;
+        public float UpwardSpeed => Vector3.Dot(velocity, UpDirection);
         public void ConfigureVisualRoot(Transform value) => visualRoot = value;
         public void SetFollowSurfaceForward(bool value) => followSurfaceForward = value;
         public void SetSurfaceFrame(Vector3 up, Vector3 forward)
@@ -74,7 +83,7 @@ namespace GameSystems.Characters
         }
         public Vector3 SurfaceUp => followSurfaceForward ? forcedSurfaceUp :
             result.Ground.IsGrounded && result.Ground.Normal.sqrMagnitude > .5f
-            ? result.Ground.Normal.normalized : Vector3.up;
+            ? result.Ground.Normal.normalized : UpDirection;
         public Vector3 SurfaceForward
         {
             get
@@ -93,6 +102,7 @@ namespace GameSystems.Characters
             defaultRootRotation = transform.rotation;
             abilities = GetComponent<CharacterAbilityController>();
             animationPlayer = GetComponent<UnityPlayableAnimationPlayer>();
+            gravityDirection = NormalizeGravity(defaultGravityDirection);
             checkpoints ??= new CharacterCheckpointService();
             checkpoints.Configure(transform, this);
             abilities?.Context?.Bind<ICharacterCheckpointService>(checkpoints);
@@ -125,6 +135,10 @@ namespace GameSystems.Characters
         public void StepMotor(float deltaTime)
         {
             if (!CanMove()) return;
+            gravityDirection = commands.HasGravityDirection
+                ? NormalizeGravity(commands.GravityDirection)
+                : NormalizeGravity(defaultGravityDirection);
+            Vector3 up = UpDirection;
             bool wasGrounded = result.Ground.IsGrounded;
 
             if (surfaceConstrained && hasForcedGround)
@@ -148,9 +162,11 @@ namespace GameSystems.Characters
 
             if (commands.HasHorizontalTarget)
             {
+                Vector3 horizontalAxis = GetHorizontalAxis(up);
+                float horizontalSpeed = Vector3.Dot(velocity, horizontalAxis);
                 bool hasInput = Mathf.Abs(commands.HorizontalTarget) > .001f;
-                bool reversing = hasInput && Mathf.Abs(velocity.x) > .08f &&
-                                 Mathf.Sign(velocity.x) != Mathf.Sign(commands.HorizontalTarget);
+                bool reversing = hasInput && Mathf.Abs(horizontalSpeed) > .08f &&
+                                 Mathf.Sign(horizontalSpeed) != Mathf.Sign(commands.HorizontalTarget);
                 float acceleration;
                 if (wasGrounded)
                     acceleration = !hasInput ? commands.GroundDeceleration :
@@ -158,12 +174,15 @@ namespace GameSystems.Characters
                 else
                     acceleration = !hasInput ? commands.AirDeceleration :
                         reversing ? commands.AirTurnAcceleration : commands.AirAcceleration;
-                velocity.x = Mathf.MoveTowards(velocity.x, commands.HorizontalTarget, acceleration * deltaTime);
+                float nextHorizontalSpeed = Mathf.MoveTowards(horizontalSpeed,
+                    commands.HorizontalTarget, acceleration * deltaTime);
+                velocity += horizontalAxis * (nextHorizontalSpeed - horizontalSpeed);
             }
 
-            if (commands.HasVerticalOverride) velocity.y = commands.VerticalOverride;
+            if (commands.HasVerticalOverride) SetUpwardSpeed(commands.VerticalOverride);
             velocity += commands.AdditiveImpulse;
-            if (!wasGrounded || velocity.y > 0f)
+            float upwardSpeed = Vector3.Dot(velocity, up);
+            if (!wasGrounded || upwardSpeed > 0f)
             {
                 float gravity = commands.Gravity > 0f ? commands.Gravity : defaultGravity;
                 float gravityMultiplier = commands.Gravity > 0f
@@ -172,11 +191,12 @@ namespace GameSystems.Characters
                 float maximumFallSpeed = commands.MaximumFallSpeed > 0f
                     ? commands.MaximumFallSpeed
                     : defaultMaximumFallSpeed;
-                velocity.y = Mathf.Max(-maximumFallSpeed,
-                    velocity.y - gravity * gravityMultiplier * deltaTime);
+                float nextUpwardSpeed = Mathf.Max(-maximumFallSpeed,
+                    upwardSpeed - gravity * gravityMultiplier * deltaTime);
+                velocity += up * (nextUpwardSpeed - upwardSpeed);
             }
 
-            float fallingSpeedBeforeMove = Mathf.Max(0f, -velocity.y);
+            float fallingSpeedBeforeMove = Mathf.Max(0f, -Vector3.Dot(velocity, up));
             if (!CanMove()) return;
             CollisionFlags flags = controller.Move(velocity * deltaTime);
             if (!CanMove()) return;
@@ -189,14 +209,14 @@ namespace GameSystems.Characters
             else
             {
                 Vector3 movementForward = Vector3.ProjectOnPlane(velocity, ground.IsGrounded
-                    ? ground.Normal : Vector3.up);
+                    ? ground.Normal : up);
                 if (movementForward.sqrMagnitude > .001f) surfaceForward = movementForward.normalized;
             }
             WallContact wall = ground.IsGrounded ? default : ProbeWall();
 
             float completedAirTime = airTime;
             airTime = ground.IsGrounded ? 0f : airTime + deltaTime;
-            if (ground.IsGrounded && velocity.y < 0f) velocity.y = -2f;
+            if (ground.IsGrounded && Vector3.Dot(velocity, up) < 0f) SetUpwardSpeed(-2f);
             result = new CharacterMotorResult(velocity, ground, wall, wasGrounded,
                 ground.IsGrounded ? completedAirTime : airTime, fallingSpeedBeforeMove);
         }
@@ -206,46 +226,51 @@ namespace GameSystems.Characters
 
         GroundContact ProbeGround(bool collisionBelow)
         {
-            if (velocity.y > .12f) return default;
+            Vector3 up = UpDirection;
+            Vector3 down = gravityDirection;
+            if (Vector3.Dot(velocity, up) > .12f) return default;
             float radius = controller.radius * .78f;
             // Start above small procedural surface offsets. A sphere cast that starts
             // already overlapping concrete returns no hit, which previously left the
             // character permanently "airborne" at spawn until a knockback made her land.
             const float probeLift = .1f;
-            Vector3 feet = transform.position + Vector3.up *
-                (controller.center.y - controller.height * .5f);
-            Vector3 origin = feet + Vector3.up * (radius + probeLift);
-            if (Physics.SphereCast(origin, radius, Vector3.down, out RaycastHit hit,
+            Vector3 feet = CharacterGroundPlacement.GetSupportPoint(transform, controller, up);
+            Vector3 origin = feet + up * (radius + probeLift);
+            if (Physics.SphereCast(origin, radius, down, out RaycastHit hit,
                     probeLift + groundProbeDistance, ~0, QueryTriggerInteraction.Ignore) &&
                 hit.collider != controller && !hit.transform.IsChildOf(transform) &&
-                hit.normal.y >= minimumGroundNormal)
+                Vector3.Dot(hit.normal, up) >= minimumGroundNormal)
                 return new GroundContact(true, hit.collider, hit.point, hit.normal);
 
             if (collisionBelow)
-                return new GroundContact(true, null, transform.position, Vector3.up);
+                return new GroundContact(true, null, transform.position, up);
             return default;
         }
 
         WallContact ProbeWall()
         {
+            Vector3 up = UpDirection;
+            Vector3 horizontalAxis = GetHorizontalAxis(up);
             float radius = controller.radius * .82f;
-            Vector3 center = transform.position + controller.center;
+            Vector3 center = transform.TransformPoint(controller.center);
             float halfSegment = Mathf.Max(0f, controller.height * .5f - controller.radius - .08f);
-            Vector3 bottom = center - Vector3.up * halfSegment;
-            Vector3 top = center + Vector3.up * halfSegment;
-            WallContact left = CastWall(bottom, top, radius, Vector3.left);
-            WallContact right = CastWall(bottom, top, radius, Vector3.right);
+            Vector3 bottom = center - up * halfSegment;
+            Vector3 top = center + up * halfSegment;
+            WallContact left = CastWall(bottom, top, radius, -horizontalAxis, up);
+            WallContact right = CastWall(bottom, top, radius, horizontalAxis, up);
             if (!left.IsTouching) return right;
             if (!right.IsTouching) return left;
-            return velocity.x >= 0f ? right : left;
+            return Vector3.Dot(velocity, horizontalAxis) >= 0f ? right : left;
         }
 
-        WallContact CastWall(Vector3 bottom, Vector3 top, float radius, Vector3 direction)
+        WallContact CastWall(Vector3 bottom, Vector3 top, float radius, Vector3 direction,
+            Vector3 up)
         {
             if (!Physics.CapsuleCast(bottom, top, radius, direction, out RaycastHit hit,
                     wallProbeDistance, ~0, QueryTriggerInteraction.Ignore) ||
                 hit.collider == controller || hit.transform.IsChildOf(transform) ||
-                Mathf.Abs(hit.normal.y) > maximumWallNormalY || Mathf.Abs(hit.normal.x) < .55f)
+                Mathf.Abs(Vector3.Dot(hit.normal, up)) > maximumWallNormalY ||
+                Mathf.Abs(Vector3.Dot(hit.normal, direction)) < .55f)
                 return default;
             return new WallContact(true, hit.collider, hit.point, hit.normal);
         }
@@ -259,23 +284,43 @@ namespace GameSystems.Characters
         }
 
         public void SetVelocity(Vector3 value) => velocity = value;
-        public void SetVerticalVelocity(float value) => velocity.y = value;
+        public void SetVerticalVelocity(float value) => SetUpwardSpeed(value);
+        public void SetUpwardSpeed(float value)
+        {
+            Vector3 up = UpDirection;
+            velocity += up * (value - Vector3.Dot(velocity, up));
+        }
+
+        static Vector3 NormalizeGravity(Vector3 value) => value.sqrMagnitude > .0001f
+            ? value.normalized : Vector3.down;
+
+        Vector3 GetHorizontalAxis(Vector3 up)
+        {
+            Vector3 planeNormal = movementPlaneNormal.sqrMagnitude > .001f
+                ? movementPlaneNormal.normalized : Vector3.forward;
+            Vector3 axis = Vector3.Cross(up, planeNormal);
+            if (axis.sqrMagnitude < .001f) axis = Vector3.ProjectOnPlane(Vector3.right, up);
+            if (axis.sqrMagnitude < .001f) axis = Vector3.Cross(up, Vector3.up);
+            return axis.sqrMagnitude > .001f ? axis.normalized : Vector3.right;
+        }
 
         public void ApplyPlayablePostProcess()
         {
             if (visualRoot == null) return;
-            if (!followSurfaceForward && Mathf.Abs(velocity.x) > facingDeadZone)
-                facingSign = Mathf.Sign(velocity.x);
             Vector3 up = SurfaceUp;
+            Vector3 horizontalAxis = GetHorizontalAxis(up);
+            float horizontalSpeed = Vector3.Dot(velocity, horizontalAxis);
+            if (!followSurfaceForward && Mathf.Abs(horizontalSpeed) > facingDeadZone)
+                facingSign = Mathf.Sign(horizontalSpeed);
             Vector3 forward = followSurfaceForward
                 ? SurfaceForward
-                : Vector3.ProjectOnPlane(Vector3.right * facingSign, up);
+                : horizontalAxis * facingSign;
             if (forward.sqrMagnitude < .001f) forward = SurfaceForward * facingSign;
             if (forward.sqrMagnitude < .001f) return;
             float playableFacingOffset = animationPlayer?.Context
                 .GetFloat("PlayableFacingOffset") ?? 0f;
-            Quaternion target = Quaternion.LookRotation(forward.normalized, up) *
-                                Quaternion.AngleAxis(playableFacingOffset, Vector3.up);
+            Quaternion target = Quaternion.AngleAxis(playableFacingOffset, up) *
+                                Quaternion.LookRotation(forward.normalized, up);
             visualRoot.rotation = followSurfaceForward
                 ? target
                 : Quaternion.Slerp(visualRoot.rotation, target,

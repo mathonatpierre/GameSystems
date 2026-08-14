@@ -9,6 +9,7 @@ namespace GameSystems.LevelGeneration.Editor
     {
         bool showLayout = true;
         bool showWallJumps = true;
+        bool showFeatures = true;
 
         public override void OnInspectorGUI()
         {
@@ -23,7 +24,7 @@ namespace GameSystems.LevelGeneration.Editor
                 GameSystemsInspectorUI.EndFoldout();
             }
 
-            if (GameSystemsInspectorUI.Foldout(ref showWallJumps, "Wall Jumps"))
+            if (GameSystemsInspectorUI.Foldout(ref showWallJumps, "Wall Jump Sequence Shape"))
             {
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("wallJumps"), true);
                 GameSystemsInspectorUI.EndFoldout();
@@ -33,6 +34,14 @@ namespace GameSystems.LevelGeneration.Editor
                 serializedObject.FindProperty("platformTypes"),
                 typeof(PlatformTypeDefinition),
                 "Platform Types");
+            if (GameSystemsInspectorUI.Foldout(ref showFeatures, "Level Features"))
+            {
+                GameSystemsInspectorUI.InlineScriptableObjectList(
+                    serializedObject.FindProperty("features"),
+                    typeof(LevelFeatureDefinition),
+                    "Features");
+                GameSystemsInspectorUI.EndFoldout();
+            }
             serializedObject.ApplyModifiedProperties();
         }
     }

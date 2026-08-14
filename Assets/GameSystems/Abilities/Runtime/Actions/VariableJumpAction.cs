@@ -44,6 +44,8 @@ namespace GameSystems.Abilities.Actions
                 CharacterRuntimeContext character = Context.Get<CharacterRuntimeContext>();
                 AbilityRuntime ability = Context.Get<AbilityRuntime>();
                 if (character.Motor == null) { Fail("Missing character motor."); return true; }
+                ICharacterGravityFrame gravityFrame = character.Motor as ICharacterGravityFrame;
+                Vector3 up = gravityFrame?.UpDirection ?? Vector3.up;
                 CharacterMotorCommands commands = character.Motor.Commands;
                 if (needsImpulse)
                 {
@@ -51,13 +53,15 @@ namespace GameSystems.Abilities.Actions
                     commands.VerticalOverride = Data.initialVelocity;
                     needsImpulse = false;
                 }
-                else if (holdRemaining > 0f && input != null && input.IsHeld(ability.Definition) && character.Motor.Result.Velocity.y > 0f)
+                else if (holdRemaining > 0f && input != null && input.IsHeld(ability.Definition) &&
+                         Vector3.Dot(character.Motor.Result.Velocity, up) > 0f)
                 {
-                    commands.AdditiveImpulse.y += Data.holdAcceleration * deltaTime;
+                    commands.AdditiveImpulse += up * (Data.holdAcceleration * deltaTime);
                     holdRemaining -= deltaTime;
                 }
                 else holdRemaining = 0f;
-                float vertical = commands.HasVerticalOverride ? commands.VerticalOverride : character.Motor.Result.Velocity.y;
+                float vertical = commands.HasVerticalOverride ? commands.VerticalOverride :
+                    Vector3.Dot(character.Motor.Result.Velocity, up);
                 bool held = input != null && input.IsHeld(ability.Definition);
                 float gravity = vertical < 0f ? Data.fallGravityMultiplier : 1f;
                 if (Mathf.Abs(vertical) < Data.apexVelocityThreshold) gravity *= Data.apexGravityMultiplier;
