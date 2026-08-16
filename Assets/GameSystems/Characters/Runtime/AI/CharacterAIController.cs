@@ -4,13 +4,14 @@ using GameSystems.Abilities;
 using UnityEngine.Scripting.APIUpdating;
 using System.Collections.Generic;
 using GameSystems.Abilities.Actions;
+using GameSystems.Characters.AI;
 
 namespace GameSystems.Characters
 {
     [MovedFrom(true, "GameSystems.Abilities", "GameSystems.Abilities", "CharacterAIController")]
     [DisallowMultipleComponent, DefaultExecutionOrder(-400)]
     public sealed class CharacterAIController : MonoBehaviour, ICharacterCommandSource,
-        IHorizontalInputProvider, IAbilityInputState, IAbilityRequestObserver
+        IHorizontalInputProvider, IAbilityInputState, IAbilityRequestObserver, ICharacterTargetProvider
     {
         [SerializeField] CharacterAIDefinition definition;
         [SerializeField, Tooltip("Optional fixed target. Without one, the nearest other ability controller is selected.")]
@@ -31,11 +32,13 @@ namespace GameSystems.Characters
         bool wasAirborne;
         float previousVerticalVelocity;
         double suppressJumpRequestsUntil;
+        CharacterBehaviorTreeRuntime behaviorRuntime;
 
         public CharacterAIDefinition Definition => definition;
         public Transform CurrentTarget => currentTarget;
         public CharacterAIDecision CurrentDecision { get; private set; }
         public CharacterAIContext LastContext { get; private set; }
+        public CharacterBehaviorTreeRuntime BehaviorRuntime => behaviorRuntime;
         public float Horizontal
         {
             get
@@ -56,7 +59,11 @@ namespace GameSystems.Characters
             }
         }
 
-        public void Configure(CharacterAIDefinition value) => definition = value;
+        public void Configure(CharacterAIDefinition value)
+        {
+            definition = value;
+            behaviorRuntime = definition?.BehaviorTree?.CreateRuntime();
+        }
         public void SetTarget(Transform value) => targetOverride = value;
 
         public bool HasReachableLandingAhead()
@@ -103,6 +110,17 @@ namespace GameSystems.Characters
             currentTarget = ResolveTarget(context);
             LastContext = new CharacterAIContext(context, this, currentTarget,
                 CheckLineOfSight(context, currentTarget));
+
+            if (definition.BehaviorTree != null)
+            {
+                behaviorRuntime ??= definition.BehaviorTree.CreateRuntime();
+                behaviorRuntime.Tick(LastContext, Time.timeAsDouble);
+                AbilityDefinition requested = behaviorRuntime.RequestedAbility;
+                if (requested == null || IsGrounded() &&
+                    Time.timeAsDouble < suppressJumpRequestsUntil) return;
+                requests.Add(new AbilityRequest(requested, this, 1f, Time.timeAsDouble));
+                return;
+            }
 
             CharacterAIDecision winner = null;
             CharacterAIDecision[] decisions = definition.Decisions;

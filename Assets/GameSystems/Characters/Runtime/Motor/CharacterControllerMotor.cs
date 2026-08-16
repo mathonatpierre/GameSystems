@@ -10,12 +10,19 @@ namespace GameSystems.Characters
     [RequireComponent(typeof(CharacterController))]
     public sealed class CharacterControllerMotor : MonoBehaviour, ICharacterMotor, ICharacterMotorControl,
         ICharacterGravityFrame, ICharacterSurfaceFrame, ICharacterSurfaceAlignmentControl,
-        IPlayablePostProcessor
+        IPlayablePostProcessor, IPlayableRootMotionReceiver
+        , ICharacterLedgeMotor, ICharacterMovementPlane
     {
+        public int Order => 100;
+
         [SerializeField, Min(0f)] float groundProbeDistance = .045f;
         [SerializeField, Range(0f, 1f)] float minimumGroundNormal = .62f;
         [SerializeField, Min(0f)] float wallProbeDistance = .09f;
         [SerializeField, Range(0f, 1f)] float maximumWallNormalY = .28f;
+        [SerializeField, Range(.15f, .75f), Tooltip("Minimum body height that must still face a continuous wall.")]
+        float minimumWallGripHeight = .34f;
+        [SerializeField, Min(0f), Tooltip("Keeps a valid wall contact stable across brief probe gaps.")]
+        float wallContactGrace = .1f;
         [SerializeField, Min(0f), Tooltip("Gravity used when no active action supplies one.")]
         float defaultGravity = 18f;
         [SerializeField, Min(0f)] float defaultMaximumFallSpeed = 24f;
@@ -26,6 +33,18 @@ namespace GameSystems.Characters
         Vector3 movementPlaneNormal = Vector3.forward;
         [SerializeField, Min(.01f)] float surfaceAlignmentSharpness = 18f;
         [SerializeField, Min(0f)] float facingDeadZone = .04f;
+        [Header("Ledge Detection")]
+        [SerializeField, Min(.05f)] float ledgeReach = .5f;
+        [SerializeField, Range(.35f, .95f)] float ledgeChestHeight = .68f;
+        [SerializeField, Min(.05f)] float ledgeTopProbeHeight = .48f;
+        [SerializeField, Range(.45f, 1f)] float ledgeHangHeight = .68f;
+        [SerializeField, Min(0f)] float ledgeStandInset = .22f;
+        [SerializeField, Min(.1f), Tooltip("Maximum speed used to attract the animated hands to a detected ledge.")]
+        float ledgeMagnetSpeed = 4.5f;
+        [SerializeField] Transform ledgeLeftHand;
+        [SerializeField] Transform ledgeRightHand;
+        [SerializeField] Transform ledgeLeftFoot;
+        [SerializeField] Transform ledgeRightFoot;
 
         CharacterController controller;
         CharacterMotorCommands commands;
@@ -37,9 +56,17 @@ namespace GameSystems.Characters
         bool followSurfaceForward;
         Vector3 forcedSurfaceUp = Vector3.up;
         Vector3 forcedSurfaceForward = Vector3.right;
+        Quaternion surfaceVisualOffset = Quaternion.identity;
         GroundContact forcedGround;
         bool hasForcedGround;
         bool surfaceConstrained;
+        bool ledgeAnchored;
+        bool ledgeClimbing;
+        float ledgeClimbProgress;
+        Vector3 ledgeClimbFootCorrection;
+        CharacterLedgeAnchor ledgeAnchor;
+        WallContact recentWallContact;
+        float wallContactGraceRemaining;
         Quaternion defaultRootRotation;
         float airTime;
         CharacterAbilityController abilities;
@@ -49,9 +76,13 @@ namespace GameSystems.Characters
         public CharacterMotorCommands Commands { get => commands; set => commands = value; }
         public CharacterMotorResult Result => result;
         public Vector3 Velocity => velocity;
+        public Vector3 MovementPlaneNormal => movementPlaneNormal.sqrMagnitude > .001f
+            ? movementPlaneNormal.normalized : Vector3.forward;
         public Vector3 GravityDirection => gravityDirection;
         public Vector3 UpDirection => -gravityDirection;
         public float UpwardSpeed => Vector3.Dot(velocity, UpDirection);
+        public bool IsLedgeAnchored => ledgeAnchored;
+        public CharacterLedgeAnchor LedgeAnchor => ledgeAnchor;
         public void ConfigureVisualRoot(Transform value) => visualRoot = value;
         public void SetFollowSurfaceForward(bool value) => followSurfaceForward = value;
         public void SetSurfaceFrame(Vector3 up, Vector3 forward)
@@ -59,6 +90,7 @@ namespace GameSystems.Characters
             if (up.sqrMagnitude > .5f) forcedSurfaceUp = up.normalized;
             if (forward.sqrMagnitude > .5f) forcedSurfaceForward = forward.normalized;
         }
+        public void SetSurfaceVisualOffset(Quaternion offset) => surfaceVisualOffset = offset;
         public void SetSurfaceGround(Collider collider, Vector3 point, Vector3 normal)
         {
             forcedGround = new GroundContact(true, collider, point, normal);
@@ -102,6 +134,18 @@ namespace GameSystems.Characters
             defaultRootRotation = transform.rotation;
             abilities = GetComponent<CharacterAbilityController>();
             animationPlayer = GetComponent<UnityPlayableAnimationPlayer>();
+            Animator humanoid = GetComponentInChildren<Animator>();
+            if (humanoid != null && humanoid.isHuman)
+            {
+                if (ledgeLeftHand == null)
+                    ledgeLeftHand = humanoid.GetBoneTransform(HumanBodyBones.LeftHand);
+                if (ledgeRightHand == null)
+                    ledgeRightHand = humanoid.GetBoneTransform(HumanBodyBones.RightHand);
+                if (ledgeLeftFoot == null)
+                    ledgeLeftFoot = humanoid.GetBoneTransform(HumanBodyBones.LeftFoot);
+                if (ledgeRightFoot == null)
+                    ledgeRightFoot = humanoid.GetBoneTransform(HumanBodyBones.RightFoot);
+            }
             gravityDirection = NormalizeGravity(defaultGravityDirection);
             checkpoints ??= new CharacterCheckpointService();
             checkpoints.Configure(transform, this);
@@ -135,18 +179,34 @@ namespace GameSystems.Characters
         public void StepMotor(float deltaTime)
         {
             if (!CanMove()) return;
+            if (ledgeAnchored)
+            {
+                velocity = Vector3.zero;
+                result = new CharacterMotorResult(Vector3.zero, default, default,
+                    result.Ground.IsGrounded, result.AirTime, 0f);
+                return;
+            }
             gravityDirection = commands.HasGravityDirection
                 ? NormalizeGravity(commands.GravityDirection)
                 : NormalizeGravity(defaultGravityDirection);
             Vector3 up = UpDirection;
             bool wasGrounded = result.Ground.IsGrounded;
 
-            if (surfaceConstrained && hasForcedGround)
+            float requestedUpwardSpeed = commands.HasVerticalOverride
+                ? commands.VerticalOverride
+                : Vector3.Dot(velocity + commands.AdditiveImpulse, up);
+            bool launchingFromSurface = requestedUpwardSpeed > .08f;
+            if (surfaceConstrained && hasForcedGround && !launchingFromSurface)
             {
                 velocity = Vector3.zero;
                 result = new CharacterMotorResult(Vector3.zero, forcedGround, default,
                     wasGrounded, 0f, 0f);
                 return;
+            }
+            if (launchingFromSurface)
+            {
+                surfaceConstrained = false;
+                ClearSurfaceGround();
             }
 
             if (wasGrounded && result.Ground.Collider != null)
@@ -213,12 +273,106 @@ namespace GameSystems.Characters
                 if (movementForward.sqrMagnitude > .001f) surfaceForward = movementForward.normalized;
             }
             WallContact wall = ground.IsGrounded ? default : ProbeWall();
+            if (wall.IsTouching)
+            {
+                recentWallContact = wall;
+                wallContactGraceRemaining = wallContactGrace;
+            }
+            else if (!ground.IsGrounded && wallContactGraceRemaining > 0f)
+            {
+                wallContactGraceRemaining -= deltaTime;
+                wall = recentWallContact;
+            }
+            else
+            {
+                recentWallContact = default;
+                wallContactGraceRemaining = 0f;
+            }
 
             float completedAirTime = airTime;
             airTime = ground.IsGrounded ? 0f : airTime + deltaTime;
             if (ground.IsGrounded && Vector3.Dot(velocity, up) < 0f) SetUpwardSpeed(-2f);
             result = new CharacterMotorResult(velocity, ground, wall, wasGrounded,
                 ground.IsGrounded ? completedAirTime : airTime, fallingSpeedBeforeMove);
+        }
+
+        public bool TryFindLedge(out CharacterLedgeAnchor anchor)
+        {
+            anchor = default;
+            if (!CanMove() || result.Ground.IsGrounded) return false;
+            Vector3 up = UpDirection;
+            Vector3 forward = GetHorizontalAxis(up) * facingSign;
+            float height = controller.height * Mathf.Abs(controller.transform.lossyScale.y);
+            float radius = controller.radius * Mathf.Max(
+                Mathf.Abs(controller.transform.lossyScale.x), Mathf.Abs(controller.transform.lossyScale.z));
+            Vector3 feet = transform.position + transform.rotation * controller.center - up * height * .5f;
+            Vector3 chest = feet + up * (height * ledgeChestHeight);
+            if (!Physics.SphereCast(chest, radius * .72f, forward, out RaycastHit wall,
+                    ledgeReach, ~0, QueryTriggerInteraction.Ignore) ||
+                Mathf.Abs(Vector3.Dot(wall.normal, up)) > maximumWallNormalY) return false;
+            Vector3 topOrigin = wall.point + forward * (radius + .04f) + up * ledgeTopProbeHeight;
+            if (!Physics.Raycast(topOrigin, -up, out RaycastHit top,
+                    ledgeTopProbeHeight * 2f, ~0, QueryTriggerInteraction.Ignore) ||
+                Vector3.Dot(top.normal, up) < minimumGroundNormal) return false;
+            Vector3 hang = top.point - up * (height * ledgeHangHeight) - forward * (radius + .025f);
+            Vector3 stand = top.point + up * .035f + forward * (radius + ledgeStandInset);
+            Vector3 gripPoint = top.point - wall.normal * .015f;
+            anchor = new CharacterLedgeAnchor(top.collider, hang, stand, top.normal,
+                wall.normal, gripPoint);
+            return true;
+        }
+
+        public void SetLedgeAnchor(in CharacterLedgeAnchor anchor)
+        {
+            ledgeAnchor = anchor;
+            ledgeAnchored = true;
+            velocity = Vector3.zero;
+        }
+
+        public void MoveLedgeAnchor(Vector3 position)
+        {
+            if (!CanMove()) return;
+            if (!ledgeClimbing)
+            {
+                controller.Move(position - transform.position);
+                return;
+            }
+
+            // A mantle intentionally crosses the platform lip. CharacterController.Move
+            // blocks against that lip and releases all visible motion at once when the
+            // capsule clears it, which looks like a teleport. Keep the controller itself
+            // on the authored path while collisions are temporarily suspended.
+            controller.enabled = false;
+            transform.position = position + ledgeClimbFootCorrection;
+            controller.enabled = true;
+        }
+
+        public void SetLedgeClimbing(bool value)
+        {
+            ledgeClimbing = value;
+            if (value) { ledgeClimbProgress = 0f; ledgeClimbFootCorrection = Vector3.zero; }
+        }
+        public void SetLedgeClimbProgress(float value) =>
+            ledgeClimbProgress = Mathf.Clamp01(value);
+
+        public void ClearLedgeAnchor()
+        {
+            ledgeAnchored = false;
+            ledgeClimbing = false;
+            ledgeClimbProgress = 0f;
+            ledgeClimbFootCorrection = Vector3.zero;
+            ledgeAnchor = default;
+        }
+
+        public void ApplyPlayableRootMotion(Vector3 deltaPosition, Quaternion deltaRotation)
+        {
+            if (!CanMove()) return;
+            // Ledge climb remaps animation progress into the detected ledge frame.
+            // Applying the raw Mixamo delta as well would move into the platform.
+            if (ledgeAnchored) return;
+            controller.Move(deltaPosition);
+            if (deltaRotation != Quaternion.identity)
+                transform.rotation = deltaRotation * transform.rotation;
         }
 
         bool CanMove() => controller != null && controller.enabled &&
@@ -272,7 +426,18 @@ namespace GameSystems.Characters
                 Mathf.Abs(Vector3.Dot(hit.normal, up)) > maximumWallNormalY ||
                 Mathf.Abs(Vector3.Dot(hit.normal, direction)) < .55f)
                 return default;
-            return new WallContact(true, hit.collider, hit.point, hit.normal);
+            Vector3 feet = bottom - up * radius;
+            float fullHeight = Mathf.Max(.01f, Vector3.Dot(top - bottom, up) + radius * 2f);
+            Vector3 gripProbe = feet + up * (fullHeight * minimumWallGripHeight);
+            if (!Physics.SphereCast(gripProbe, radius * .32f, direction,
+                    out RaycastHit gripHit, wallProbeDistance + radius * .72f,
+                    ~0, QueryTriggerInteraction.Ignore) ||
+                gripHit.collider != hit.collider ||
+                Mathf.Abs(Vector3.Dot(gripHit.normal, up)) > maximumWallNormalY)
+                return default;
+            float height01 = Vector3.Dot(gripHit.point - feet, up) / fullHeight;
+            return new WallContact(true, gripHit.collider, gripHit.point,
+                gripHit.normal, height01);
         }
 
         public void ResetMotor()
@@ -281,6 +446,8 @@ namespace GameSystems.Characters
             airTime = 0f;
             commands.Reset();
             result = new CharacterMotorResult(Vector3.zero, default, default, false, 0f, 0f);
+            recentWallContact = default;
+            wallContactGraceRemaining = 0f;
         }
 
         public void SetVelocity(Vector3 value) => velocity = value;
@@ -320,11 +487,47 @@ namespace GameSystems.Characters
             float playableFacingOffset = animationPlayer?.Context
                 .GetFloat("PlayableFacingOffset") ?? 0f;
             Quaternion target = Quaternion.AngleAxis(playableFacingOffset, up) *
-                                Quaternion.LookRotation(forward.normalized, up);
+                                Quaternion.LookRotation(forward.normalized, up) *
+                                surfaceVisualOffset;
             visualRoot.rotation = followSurfaceForward
                 ? target
                 : Quaternion.Slerp(visualRoot.rotation, target,
                     1f - Mathf.Exp(-surfaceAlignmentSharpness * Time.deltaTime));
+            AlignHandsToLedge();
+            AlignClimbFeetToLedge();
+        }
+
+        void AlignClimbFeetToLedge()
+        {
+            if (!ledgeAnchored || !ledgeClimbing || ledgeClimbProgress < .52f ||
+                ledgeLeftFoot == null || ledgeRightFoot == null || !CanMove()) return;
+            Vector3 up = ledgeAnchor.SurfaceNormal.sqrMagnitude > .5f
+                ? ledgeAnchor.SurfaceNormal.normalized : UpDirection;
+            float leftHeight = Vector3.Dot(ledgeLeftFoot.position - ledgeAnchor.GripPoint, up);
+            float rightHeight = Vector3.Dot(ledgeRightFoot.position - ledgeAnchor.GripPoint, up);
+            float lowestHeight = Mathf.Min(leftHeight, rightHeight);
+            Vector3 desiredCorrection = up * -lowestHeight;
+            float weight = Mathf.SmoothStep(0f, 1f,
+                Mathf.InverseLerp(.52f, .76f, ledgeClimbProgress));
+            desiredCorrection *= weight;
+            Vector3 delta = desiredCorrection - ledgeClimbFootCorrection;
+            ledgeClimbFootCorrection = desiredCorrection;
+            if (delta.sqrMagnitude <= .000001f) return;
+            controller.enabled = false;
+            transform.position += delta;
+            controller.enabled = true;
+        }
+
+        void AlignHandsToLedge()
+        {
+            if (!ledgeAnchored || ledgeClimbing || ledgeLeftHand == null ||
+                ledgeRightHand == null || !CanMove()) return;
+            Vector3 hands = (ledgeLeftHand.position + ledgeRightHand.position) * .5f;
+            Vector3 correction = ledgeAnchor.GripPoint - hands;
+            if (correction.sqrMagnitude <= .000001f) return;
+            Vector3 magneticStep = Vector3.ClampMagnitude(correction,
+                ledgeMagnetSpeed * Mathf.Max(Time.deltaTime, .001f));
+            controller.Move(magneticStep);
         }
 
         public void Teleport(Vector3 position)

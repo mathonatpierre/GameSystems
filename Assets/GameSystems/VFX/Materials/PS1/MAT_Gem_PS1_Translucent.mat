@@ -25,8 +25,9 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _ColorSteps: 8
-    - _Emission: 1.5
+    - _ColorSteps: 64
+    - _Emission: 2.8
+    - _ReflectionStrength: 1.35
     - _RimPower: 2.2
     - _VertexSnap: 220
     m_Colors:

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using GameSystems.Sequencing;
 using GameSystems.Abilities;
+using GameSystems.Hooks;
 using UnityEngine.Scripting.APIUpdating;
 
 namespace GameSystems.Characters
@@ -14,7 +15,11 @@ namespace GameSystems.Characters
     {
         CharacterAbilityController abilities;
         [SerializeField] CharacterContactRule[] rules;
+        [SerializeField, Tooltip("Characters with these hooks remain detectable but do not physically collide.")]
+        HookId[] passthroughHooks;
         readonly List<GameActionRunner> runners = new();
+        readonly List<(Collider own, Collider other)> ignoredCollisionPairs = new();
+        readonly HashSet<GameObject> configuredPassthroughTargets = new();
         readonly Dictionary<UnityEngine.Object, CharacterContactContext> pendingContacts = new();
         readonly Dictionary<string, double> gates = new();
 
@@ -35,8 +40,41 @@ namespace GameSystems.Characters
 
         void Update()
         {
+            RefreshPassthroughCollisions();
             for (int i = runners.Count - 1; i >= 0; i--)
                 if (runners[i].Tick(Time.deltaTime)) runners.RemoveAt(i);
+        }
+
+        void OnDisable()
+        {
+            for (int i = 0; i < ignoredCollisionPairs.Count; i++)
+            {
+                (Collider own, Collider other) = ignoredCollisionPairs[i];
+                if (own != null && other != null) Physics.IgnoreCollision(own, other, false);
+            }
+            ignoredCollisionPairs.Clear();
+            configuredPassthroughTargets.Clear();
+        }
+
+        void RefreshPassthroughCollisions()
+        {
+            if (passthroughHooks == null) return;
+            Collider[] ownColliders = GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < passthroughHooks.Length; i++)
+            {
+                GameObject target = HookRegistry.Get(passthroughHooks[i]);
+                if (target == null || !configuredPassthroughTargets.Add(target)) continue;
+                Collider[] targetColliders = target.GetComponentsInChildren<Collider>(true);
+                for (int ownIndex = 0; ownIndex < ownColliders.Length; ownIndex++)
+                for (int targetIndex = 0; targetIndex < targetColliders.Length; targetIndex++)
+                {
+                    Collider own = ownColliders[ownIndex];
+                    Collider other = targetColliders[targetIndex];
+                    if (own == null || other == null || own == other) continue;
+                    Physics.IgnoreCollision(own, other, true);
+                    ignoredCollisionPairs.Add((own, other));
+                }
+            }
         }
 
         void LateUpdate()

@@ -12,6 +12,7 @@ namespace GameSystems.Characters
     {
         void SetFollowSurfaceForward(bool value);
         void SetSurfaceFrame(Vector3 up, Vector3 forward);
+        void SetSurfaceVisualOffset(Quaternion offset);
         void SetSurfaceGround(Collider collider, Vector3 point, Vector3 normal);
         void ClearSurfaceGround();
         void SetSurfaceConstraint(bool value);

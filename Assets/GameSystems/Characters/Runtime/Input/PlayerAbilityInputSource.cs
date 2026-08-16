@@ -9,7 +9,7 @@ namespace GameSystems.Characters
     [MovedFrom(true, "GameSystems.Abilities", "GameSystems.Abilities", "PlayerAbilityInputSource")]
     [DefaultExecutionOrder(-400)]
     public sealed class PlayerAbilityInputSource : MonoBehaviour, ICharacterCommandSource,
-        IHorizontalInputProvider, IAbilityInputState, IAbilityRequestObserver
+        IHorizontalInputProvider, IDirectionalInputProvider, IAbilityInputState, IAbilityRequestObserver
     {
         [SerializeField] PlayerAbilityInputMap inputMap;
         double[] bufferedUntil;
@@ -18,8 +18,22 @@ namespace GameSystems.Characters
         readonly CharacterRequestBuffer pending = new();
 
         public float Horizontal => IsGameplayLocked ? 0f : inputMap != null && inputMap.horizontal != null
-            ? inputMap.horizontal.action.ReadValue<float>() : 0f;
-        bool IsGameplayLocked => GetComponent<CharacterAbilityController>()?.IsAbilityLocked ?? false;
+            ? inputMap.horizontal.action.ReadValue<float>() : Directional.x;
+        public Vector2 Directional => IsGameplayLocked ? Vector2.zero :
+            inputMap?.movement != null ? inputMap.movement.action.ReadValue<Vector2>() :
+            new Vector2(inputMap?.horizontal != null ? inputMap.horizontal.action.ReadValue<float>() : 0f, 0f);
+        bool IsGameplayLocked
+        {
+            get
+            {
+                if (GetComponent<CharacterAbilityController>()?.IsAbilityLocked == true) return true;
+                MonoBehaviour[] behaviours = GetComponents<MonoBehaviour>();
+                for (int i = 0; i < behaviours.Length; i++)
+                    if (behaviours[i] is ICharacterInputGate gate && gate.BlocksCharacterInput)
+                        return true;
+                return false;
+            }
+        }
         public bool AnyAbilityHeld => AnyMappedAbilityHeld;
         public bool AnyMappedAbilityHeld
         {
@@ -32,11 +46,19 @@ namespace GameSystems.Characters
             }
         }
 
-        public void Configure(PlayerAbilityInputMap value) => inputMap = value;
+        public void Configure(PlayerAbilityInputMap value)
+        {
+            if (isActiveAndEnabled) UnbindInput();
+            inputMap = value;
+            if (isActiveAndEnabled) BindInput();
+        }
 
-        void OnEnable()
+        void OnEnable() => BindInput();
+
+        void BindInput()
         {
             if (inputMap?.horizontal != null) inputMap.horizontal.action.Enable();
+            if (inputMap?.movement != null) inputMap.movement.action.Enable();
             int count = inputMap?.bindings?.Length ?? 0;
             bufferedUntil = new double[count];
             performedHandlers = new Action<InputAction.CallbackContext>[count];
@@ -60,9 +82,12 @@ namespace GameSystems.Characters
             }
         }
 
-        void OnDisable()
+        void OnDisable() => UnbindInput();
+
+        void UnbindInput()
         {
             if (inputMap?.horizontal != null) inputMap.horizontal.action.Disable();
+            if (inputMap?.movement != null) inputMap.movement.action.Disable();
             if (inputMap?.bindings == null) return;
             for (int i = 0; i < inputMap.bindings.Length; i++)
             {
@@ -72,6 +97,9 @@ namespace GameSystems.Characters
                 if (canceledHandlers != null && canceledHandlers[i] != null) action.canceled -= canceledHandlers[i];
                 action.Disable();
             }
+            bufferedUntil = null;
+            performedHandlers = null;
+            canceledHandlers = null;
         }
 
         void Buffer(int index)
@@ -80,6 +108,18 @@ namespace GameSystems.Characters
             PlayerAbilityBinding binding = inputMap.bindings[index];
             if (binding.phase == AbilityInputPhase.Held) return;
             bufferedUntil[index] = Time.timeAsDouble + Mathf.Max(.001f, binding.bufferDuration);
+        }
+
+        public void Consume(InputAction consumedAction)
+        {
+            if (consumedAction == null || inputMap?.bindings == null || bufferedUntil == null) return;
+            for (int i = 0; i < inputMap.bindings.Length && i < bufferedUntil.Length; i++)
+            {
+                PlayerAbilityBinding binding = inputMap.bindings[i];
+                if (binding.phase != AbilityInputPhase.Held &&
+                    binding.action?.action == consumedAction)
+                    bufferedUntil[i] = 0d;
+            }
         }
 
         public void CollectCommands(CharacterRuntimeContext context, CharacterRequestBuffer requests)
@@ -128,12 +168,17 @@ namespace GameSystems.Characters
         public void OnAbilityRequestResolved(in AbilityRequest request, AbilityRequestResult result)
         {
             if (result != AbilityRequestResult.Accepted || inputMap?.bindings == null) return;
+            InputAction consumedAction = null;
             for (int i = 0; i < inputMap.bindings.Length; i++)
             {
                 PlayerAbilityBinding binding = inputMap.bindings[i];
-                if (binding.ability != request.Ability || binding.phase == AbilityInputPhase.Held) continue;
-                bufferedUntil[i] = 0d;
+                if (binding.ability == request.Ability && binding.phase != AbilityInputPhase.Held)
+                {
+                    consumedAction = binding.action?.action;
+                    break;
+                }
             }
+            Consume(consumedAction);
         }
     }
 }

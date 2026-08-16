@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System;
+using GameSystems.Sequencing;
 using UnityEngine;
 
 namespace GameSystems.Feedbacks
@@ -7,51 +9,50 @@ namespace GameSystems.Feedbacks
     public sealed class FeedbackSequence : ScriptableObject
     {
         [SerializeField] string description;
-        [SerializeField] FeedbackPlayMode playMode = FeedbackPlayMode.Parallel;
         [SerializeField] FeedbackConcurrency concurrency = FeedbackConcurrency.AllowMultiple;
         [SerializeField, Min(1)] int maximumInstances = 4;
         [SerializeField] string channel;
-        [SerializeField] List<FeedbackAsset> feedbacks = new();
+        [SerializeField] GameActionSequence actionSequence = new();
 
-        public FeedbackPlayMode PlayMode => playMode;
         public FeedbackConcurrency Concurrency => concurrency;
         public int MaximumInstances => Mathf.Max(1, maximumInstances);
         public string Channel => channel;
         public string Description => description;
-        public IReadOnlyList<FeedbackAsset> Feedbacks => feedbacks;
+        public GameActionSequence Sequence => actionSequence ??= new GameActionSequence();
+
+        public void Configure(FeedbackConcurrency policy, int limit = 4,
+            string sequenceChannel = null)
+        {
+            concurrency = policy;
+            maximumInstances = Mathf.Max(1, limit);
+            channel = sequenceChannel;
+        }
+
+        public void ReplaceActions(GameAction[] parallelActions)
+        {
+            var branches = new List<GameActionSequence>();
+            foreach (GameAction action in parallelActions ?? Array.Empty<GameAction>())
+            {
+                if (action == null) continue;
+                var branch = new GameActionSequence();
+                branch.Configure(Array.Empty<GameCondition>(), new[] { action });
+                branches.Add(branch);
+            }
+            ReplaceWithActions(branches.Count == 0 ? Array.Empty<GameAction>() :
+                new GameAction[] { new RunParallelAction(branches.ToArray()) });
+        }
+
+        public void ReplaceWithActions(GameAction[] actions)
+        {
+            actionSequence ??= new GameActionSequence();
+            actionSequence.Configure(Array.Empty<GameCondition>(), actions ?? Array.Empty<GameAction>());
+#if UNITY_EDITOR
+            UnityEditor.EditorUtility.SetDirty(this);
+#endif
+        }
 
 #if UNITY_EDITOR
-        public void Configure(FeedbackPlayMode mode, FeedbackConcurrency policy, int limit = 4, string sequenceChannel = null)
-        {
-            playMode = mode; concurrency = policy; maximumInstances = Mathf.Max(1, limit); channel = sequenceChannel;
-            UnityEditor.EditorUtility.SetDirty(this);
-        }
-
-        public void ReplaceFeedbacks(IEnumerable<FeedbackAsset> assets)
-        {
-            feedbacks.Clear();
-            if (assets != null) feedbacks.AddRange(assets);
-            UnityEditor.EditorUtility.SetDirty(this);
-        }
-
-        public FeedbackAsset AddEmbedded(FeedbackKind kind)
-        {
-            var asset = CreateInstance<FeedbackAsset>();
-            asset.name = "EMBED_" + kind;
-            asset.Configure(new FeedbackCue { kind = kind, label = kind.ToString() });
-            UnityEditor.AssetDatabase.AddObjectToAsset(asset, this);
-            feedbacks.Add(asset);
-            UnityEditor.EditorUtility.SetDirty(this);
-            UnityEditor.AssetDatabase.SaveAssets();
-            return asset;
-        }
-
-        public void AddReference(FeedbackAsset asset)
-        {
-            if (asset == null) return;
-            feedbacks.Add(asset);
-            UnityEditor.EditorUtility.SetDirty(this);
-        }
+        void OnValidate() => maximumInstances = Mathf.Max(1, maximumInstances);
 #endif
     }
 

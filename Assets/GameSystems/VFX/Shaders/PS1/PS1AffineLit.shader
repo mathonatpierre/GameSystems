@@ -8,13 +8,11 @@ Shader "Lennie/PS1 Affine Lit"
         _BaseColor("Base Color", Color) = (1,1,1,1)
         _VertexSnap("Vertex Snap", Range(64,640)) = 240
         _UVSteps("UV Compression (0 = off)", Range(0,256)) = 64
-        _ColorSteps("Color Compression", Range(4,64)) = 24
-        _Wobble("UV Wobble", Range(0,2)) = 0.45
-        _ScreenPixelSize("Texture Pixel Size", Range(1,4)) = 2
+        _ColorSteps("Color Compression", Range(4,64)) = 64
         _Ambient("Ambient", Range(0,1)) = 0.2
         _Metallic("PS1 Metallic", Range(0,1)) = 0
-        _Smoothness("PS1 Smoothness", Range(0,1)) = .25
-        _SpecularSteps("Specular Quantization", Range(2,16)) = 6
+        _Smoothness("PS1 Smoothness", Range(0,1)) = .32
+        _SpecularSteps("Specular Quantization", Range(2,16)) = 8
         _EdgeWear("Edge Wear", Range(0,1)) = 0
         _EdgeWidth("Edge Width", Range(0.005,0.2)) = 0.055
         _EdgeTint("Edge Tint", Color) = (1.2,1.18,1.16,1)
@@ -69,8 +67,6 @@ Shader "Lennie/PS1 Affine Lit"
                 float _VertexSnap;
                 float _UVSteps;
                 float _ColorSteps;
-                float _Wobble;
-                float _ScreenPixelSize;
                 float _Ambient;
                 float _Metallic;
                 float _Smoothness;
@@ -165,8 +161,6 @@ Shader "Lennie/PS1 Affine Lit"
                 }
                 output.positionCS = clip;
                 float2 uv = TRANSFORM_TEX(input.uv, _BaseMap);
-                float wobble = sin((pos.positionWS.x + pos.positionWS.y) * 11.7 + _Time.y * 2.0) * _Wobble * 0.0005;
-                uv += wobble;
                 output.uv = _UVSteps > 0.5 ? floor(uv * _UVSteps + 0.5) / _UVSteps : uv;
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
                 output.fogFactor = ComputeFogFactor(clip.z);
@@ -178,8 +172,7 @@ Shader "Lennie/PS1 Affine Lit"
 
             half4 Frag(Varyings input) : SV_Target
             {
-                float2 pixelDelta = (floor(input.positionCS.xy / _ScreenPixelSize) + 0.5) * _ScreenPixelSize - input.positionCS.xy;
-                float2 sampleUV = input.uv + ddx(input.uv) * pixelDelta.x + ddy(input.uv) * pixelDelta.y;
+                float2 sampleUV = input.uv;
                 half4 tex = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, sampleUV) * _BaseColor;
                 half vertexSurfaceMask = saturate(input.vertexSurfaceMask * _VertexSurfaceBlend);
                 half3 secondarySurface = SAMPLE_TEXTURE2D(_SecondaryMap, sampler_SecondaryMap,
@@ -247,19 +240,24 @@ Shader "Lennie/PS1 Affine Lit"
 
                 Light light = GetMainLight(input.shadowCoord);
                 half ndl = saturate(dot(normalWS, light.direction));
-                ndl = floor((0.3h + ndl * 0.7h) * 4.0h) / 4.0h;
-                half pixelShadow = floor(light.shadowAttenuation * 3.0h + 0.5h) / 3.0h;
-                // Keep PS1 contrast without crushing shadowed concrete into purple-black.
-                half directLight = lerp(0.38h, 1.0h, pixelShadow) * light.distanceAttenuation;
+                ndl = floor((0.18h + ndl * 0.82h) * 6.0h + .5h) / 6.0h;
+                // Preserve the graphic color bands while leaving URP's soft shadow
+                // penumbra continuous. Quantizing attenuation caused crawling, hard steps.
+                half softShadow = smoothstep(.06h, .94h, light.shadowAttenuation);
+                half directLight = lerp(0.27h, 1.0h, softShadow) * light.distanceAttenuation;
                 float3 viewDirection = SafeNormalize(GetWorldSpaceViewDir(input.positionWS));
                 half3 halfDirection = SafeNormalize((half3)light.direction + (half3)viewDirection);
-                half specularPower = lerp(4.0h, 72.0h, (half)_Smoothness);
+                half specularPower = lerp(3.0h, 56.0h, (half)_Smoothness);
                 half specular = pow(saturate(dot((half3)normalWS, halfDirection)), specularPower);
                 specular = floor(specular * _SpecularSteps + .5h) / max(2.0h, (half)_SpecularSteps);
                 half3 specularColor = lerp(half3(.055h, .06h, .07h), tex.rgb, (half)_Metallic);
-                half specularStrength = lerp(.12h, 1.0h, (half)_Metallic) * (half)_Smoothness;
+                // Dielectrics receive a broad, restrained satin highlight. Metallic
+                // surfaces can still opt into a stronger response explicitly.
+                half specularStrength = lerp(.2h, 1.0h, (half)_Metallic) * (half)_Smoothness;
                 half3 diffuseColor = tex.rgb * (1.0h - (half)_Metallic * .42h);
                 half3 color = diffuseColor * (ndl * light.color * directLight + _Ambient);
+                half purifiedLift = saturate(max(surfaceReplacement, verticalReplacement));
+                color = lerp(color, color * half3(1.04h, 1.12h, .94h), purifiedLift * .48h);
                 color += specularColor * light.color * specular * specularStrength * directLight;
                 #if defined(_ADDITIONAL_LIGHTS)
                 uint lightCount = GetAdditionalLightsCount();

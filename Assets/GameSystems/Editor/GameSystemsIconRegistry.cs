@@ -90,7 +90,6 @@ namespace GameSystems.Editor
             else if (name.Contains("InputMap", StringComparison.Ordinal)) iconName = "input-map";
             else if (name.Contains("Motor", StringComparison.Ordinal)) iconName = "motor";
             else if (name == "FeedbackSequence") iconName = "feedback-sequence";
-            else if (name == "FeedbackAsset") iconName = "feedback-asset";
             else if (name.Contains("Blend1D", StringComparison.Ordinal)) iconName = "blend-1d";
             else if (name.Contains("Blend2D", StringComparison.Ordinal)) iconName = "blend-2d";
             else if (name == "SceneHook") iconName = "scene-hook";

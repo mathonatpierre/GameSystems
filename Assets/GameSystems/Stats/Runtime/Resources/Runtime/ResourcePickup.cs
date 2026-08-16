@@ -22,22 +22,30 @@ namespace GameSystems.Stats
                 new GameCondition[] { new TriggerContactHookCondition(hook) },
                 new GameAction[]
                 {
-                    new AddContactResourceAction(definition, value),
+                    new AddResourceAction(definition, value),
                     new SetGameObjectActiveAction(false)
                 });
         }
 
         public void ConfigureFeedback(FeedbackSequence value) => collectionFeedback = value;
 
-        void OnTriggerEnter(Collider other)
+        void OnTriggerEnter(Collider other) => TryCollect(other);
+        void OnTriggerStay(Collider other) => TryCollect(other);
+
+        void TryCollect(Collider other)
         {
             if (consumed || other == null) return;
-            GameActionContext context = new(gameObject, this, other, other.gameObject);
+            GameActionContext context = new(gameObject, this, other.gameObject, other);
             if (!contactSequence.CanRun(context)) return;
             GameActionRunner runner = contactSequence.CreateRunner(context);
             consumed = true;
-            FeedbackService.Play(collectionFeedback, FeedbackContext.From(gameObject)
-                .WithPosition(transform.position).WithTarget(other.gameObject));
+            var feedback = new FeedbackRuntimeContext
+            {
+                Position = transform.position,
+                Rotation = transform.rotation
+            };
+            FeedbackService.Play(collectionFeedback,
+                new GameActionContext(gameObject, gameObject, other.gameObject, feedback));
             runner.Start();
             collected?.Invoke();
         }

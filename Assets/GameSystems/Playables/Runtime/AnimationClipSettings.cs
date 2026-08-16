@@ -17,5 +17,15 @@ namespace GameSystems.Playables
         public float NormalizedStart => normalizedStart;
         public float NormalizedEnd => normalizedEnd;
         public bool Loop => loop;
+
+        public void Configure(AnimationClip value, bool shouldLoop, float playbackSpeed = 1f,
+            float start = 0f, float end = 1f)
+        {
+            clip = value;
+            loop = shouldLoop;
+            speed = Mathf.Max(.01f, playbackSpeed);
+            normalizedStart = Mathf.Clamp01(start);
+            normalizedEnd = Mathf.Clamp(end, normalizedStart, 1f);
+        }
     }
 }

@@ -1,4 +1,0 @@
-namespace GameSystems.Feedbacks
-{
-    public enum FeedbackKind { CameraShake,TransformShake,Scale,ParticleBurst,Audio,LightIntensity,MaterialFloat,MaterialColor,TimeScale,Rotation,Position,SetActive,AnimatorTrigger,RigidbodyImpulse,UnityEvent,NestedPlayer,PositionSpring,RotationSpring,ScaleSpring,SquashStretchSpring,FreezeFrame,CameraZoom,ScreenFlash,AudioRandomized,InstantiatePooled,URPBloom,URPChromaticAberration,URPLensDistortion,URPVignette,URPColorAdjustments,RendererBlink,MaterialFloatHierarchy }
-}

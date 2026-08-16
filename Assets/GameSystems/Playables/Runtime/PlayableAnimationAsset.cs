@@ -7,11 +7,14 @@ namespace GameSystems.Playables
     {
         [SerializeField, Min(.001f)] float defaultBlendDuration = .08f;
         [SerializeField] bool restartWhenPlayed = true;
+        [SerializeField, Tooltip("Apply animation root motion through an IPlayableRootMotionReceiver.")]
+        bool applyRootMotion;
         [SerializeField, Range(-180f, 180f), Tooltip("Yaw applied by character presentation after evaluating this playable.")]
         float facingOffset;
 
         public float DefaultBlendDuration => defaultBlendDuration;
         public bool RestartWhenPlayed => restartWhenPlayed;
+        public bool ApplyRootMotion => applyRootMotion;
         public float FacingOffset => facingOffset;
 
         internal abstract PlayableAnimationRuntime CreateRuntime(PlayableGraph graph);

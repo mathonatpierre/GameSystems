@@ -27,13 +27,18 @@ namespace GameSystems.Abilities.Editor
             serializedObject.ApplyModifiedProperties();
         }
 
-        protected static void DrawHeader(AbilityDefinition ability)
+        void DrawHeader(AbilityDefinition ability)
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
             {
                 GameSystemsInspectorUI.Pill(ability.Category.ToString(), AbilityEditorStyles.CategoryColor(ability.Category));
                 EditorGUILayout.LabelField(ability.name, EditorStyles.boldLabel);
                 GUILayout.FlexibleSpace();
+                SerializedProperty disabled = serializedObject.FindProperty("disabled");
+                bool enabled = !disabled.boolValue;
+                bool next = EditorGUILayout.Toggle(new GUIContent("", "Enable or disable this ability."), enabled,
+                    GUILayout.Width(18f));
+                if (next != enabled) disabled.boolValue = !next;
                 EditorGUILayout.LabelField(ability.AutoStart ? "Auto Start" : "Requested", GameSystemsInspectorUI.SmallMutedStyle, GUILayout.Width(76f));
                 EditorGUILayout.LabelField($"P {ability.Priority}", GameSystemsInspectorUI.SmallMutedStyle, GUILayout.Width(36f));
             }
@@ -102,6 +107,7 @@ namespace GameSystems.Abilities.Editor
         static bool IsBaseProperty(string propertyPath)
         {
             return propertyPath is "m_Script" or
+                "disabled" or
                 "autoStart" or
                 "priority" or
                 "cooldown" or

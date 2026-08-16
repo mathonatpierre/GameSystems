@@ -2,6 +2,7 @@
   "name": "GameSystems.Feedbacks",
   "rootNamespace": "GameSystems.Feedbacks",
   "references": [
+    "GameSystems.Sequencing",
     "Unity.RenderPipelines.Core.Runtime",
     "Unity.RenderPipelines.Universal.Runtime"
   ],

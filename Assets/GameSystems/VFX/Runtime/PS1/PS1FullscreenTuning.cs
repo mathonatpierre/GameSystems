@@ -14,7 +14,7 @@ namespace GameSystems.VFX
         [SerializeField, Min(180)] int renderHeight = 360;
         [Header("Pixelisation")]
         [SerializeField, Range(1f, 6f)] float pixelSize = 1.75f;
-        [SerializeField, Range(8f, 128f)] float colorSteps = 72f;
+        [SerializeField, Range(8f, 128f)] float colorSteps = 64f;
         [Header("Trame")]
         [SerializeField, Range(0f, 1f)] float ditherStrength = .1f;
         [SerializeField, Range(1f, 8f)] float ditherPatternScale = 2f;

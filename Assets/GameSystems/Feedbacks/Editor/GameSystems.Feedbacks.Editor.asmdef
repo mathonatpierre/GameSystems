@@ -3,6 +3,7 @@
   "rootNamespace": "GameSystems.Feedbacks.Editor",
   "references": [
     "GameSystems.Feedbacks",
+    "GameSystems.Sequencing",
     "GameSystems.Editor"
   ],
   "includePlatforms": ["Editor"],

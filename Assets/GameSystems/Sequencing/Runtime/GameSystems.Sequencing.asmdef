@@ -1,1 +1,1 @@
-{"name":"GameSystems.Sequencing","rootNamespace":"GameSystems.Sequencing","references":[],"autoReferenced":true,"noEngineReferences":false}
+{"name":"GameSystems.Sequencing","rootNamespace":"GameSystems.Sequencing","references":["GameSystems.Core"],"autoReferenced":true,"noEngineReferences":false}

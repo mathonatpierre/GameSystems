@@ -57,11 +57,17 @@ namespace GameSystems.Abilities
             context.Bind<IAbilityLockService>(this);
             context.Bind(GetComponent<GameSystems.Stats.CharacterStats>());
             animationPlayer = GetComponent<UnityPlayableAnimationPlayer>();
+            if (animationPlayer == null)
+                animationPlayer = GetComponentInChildren<UnityPlayableAnimationPlayer>(true);
             BuildAbilitySet();
             StartAutomaticAbilities();
         }
 
-        void OnEnable() => CharacterAbilityRegistry.Register(this);
+        void OnEnable()
+        {
+            displayedAbility = null;
+            CharacterAbilityRegistry.Register(this);
+        }
 
         void Update()
         {
@@ -72,9 +78,25 @@ namespace GameSystems.Abilities
             if (!locked)
                 for (int i = 0; i < orderedRequests.Count; i++) Request(orderedRequests[i]);
             TickBeforeMotor(Time.deltaTime);
+
+            // Presentation must keep running while gameplay is locked. In that state
+            // the motor deliberately skips its step, so OnMotorStepped cannot arbitrate
+            // reactions such as Victory or Death.
+            if (locked && !simulateMotorWhileLocked)
+                RefreshAnimation(motor != null ? motor.Result : default);
         }
 
         public void Submit(in AbilityRequest request) => requests.Add(request);
+
+        public bool CanStart(AbilityDefinition ability, UnityEngine.Object source = null)
+        {
+            if (locked || ability == null || !ability.Enabled ||
+                !runtimes.TryGetValue(ability, out AbilityRuntime runtime) || runtime.IsActive ||
+                GetCooldownRemaining(ability) > 0f) return false;
+            return runtime.CanStart(new AbilityRequest(ability, source != null ? source : this,
+                1f, Time.timeAsDouble));
+        }
+
         public void OnMotorStepped(in CharacterMotorResult result)
         {
             TickAfterMotor(result);
@@ -167,7 +189,7 @@ namespace GameSystems.Abilities
 
         void EnsureRuntime(AbilityDefinition definition)
         {
-            if (definition == null || runtimes.ContainsKey(definition)) return;
+            if (definition == null || !definition.Enabled || runtimes.ContainsKey(definition)) return;
             AbilityRuntime runtime = definition.CreateRuntime();
             if (runtime == null) throw new InvalidOperationException($"{definition.name} returned no runtime");
             runtime.Initialize(definition, context);
@@ -194,6 +216,7 @@ namespace GameSystems.Abilities
         {
             LastRequestedAbility = request.Ability;
             if (request.Ability == null) return Record(request, AbilityRequestResult.MissingAbility);
+            if (!request.Ability.Enabled) return Record(request, AbilityRequestResult.RejectedByRuntime);
             if (!runtimes.TryGetValue(request.Ability, out AbilityRuntime candidate)) return Record(request, AbilityRequestResult.NotInAbilitySet);
             if (candidate.IsActive)
                 return Record(request, candidate.Refresh(request)
@@ -241,16 +264,6 @@ namespace GameSystems.Abilities
         public bool Request(AbilityDefinition ability, UnityEngine.Object source = null, float value = 1f)
             => Request(new AbilityRequest(ability, source != null ? source : this, value, Time.timeAsDouble));
 
-        public bool RequestReaction(ReactionId reactionId, float value = 1f, UnityEngine.Object source = null)
-        {
-            return RequestReaction(FindReaction(reactionId), value, source);
-        }
-
-        public bool RequestReaction(string customReactionId, float value = 1f, UnityEngine.Object source = null)
-        {
-            return RequestReaction(FindReaction(customReactionId), value, source);
-        }
-
         public bool RequestReaction(ReactionDefinition reaction, float value = 1f, UnityEngine.Object source = null)
         {
             if (reaction == null) return false;
@@ -258,22 +271,6 @@ namespace GameSystems.Abilities
             EnsureRuntime(reaction);
             if (!existed) SortRuntimes();
             return Request(reaction, source, value);
-        }
-
-        ReactionDefinition FindReaction(ReactionId reactionId)
-        {
-            for (int i = 0; i < orderedRuntimes.Count; i++)
-                if (orderedRuntimes[i].Definition is ReactionDefinition reaction && reaction.Matches(reactionId))
-                    return reaction;
-            return null;
-        }
-
-        ReactionDefinition FindReaction(string customReactionId)
-        {
-            for (int i = 0; i < orderedRuntimes.Count; i++)
-                if (orderedRuntimes[i].Definition is ReactionDefinition reaction && reaction.Matches(customReactionId))
-                    return reaction;
-            return null;
         }
 
         void StartAutomaticAbilities()
@@ -369,13 +366,18 @@ namespace GameSystems.Abilities
             Renderer renderer = GetComponentInChildren<Renderer>();
             GameObject visuals = animator != null ? animator.gameObject
                 : renderer != null ? renderer.gameObject : gameObject;
-            FeedbackContext feedback = FeedbackContext.From(gameObject)
-                .WithIntensity(Mathf.Max(.01f, intensity))
-                .Bind("Character", gameObject)
-                .Bind("Visual", visuals)
-                .Bind("Visuals", visuals)
-                .Bind("Slime", visuals);
-            FeedbackService.Play(sequence, feedback);
+            var feedback = new FeedbackRuntimeContext
+            {
+                Position = transform.position,
+                Rotation = transform.rotation,
+                Intensity = Mathf.Max(.01f, intensity)
+            };
+            feedback.Bind("Character", gameObject);
+            feedback.Bind("Visual", visuals);
+            feedback.Bind("Visuals", visuals);
+            feedback.Bind("Slime", visuals);
+            FeedbackService.Play(sequence,
+                new GameActionContext(gameObject, gameObject, null, feedback));
         }
 
         void RecalculateAuthorities()

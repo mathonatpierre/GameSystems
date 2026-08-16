@@ -8,5 +8,8 @@ namespace GameSystems.Sequencing
         [SerializeField] GameActionSequence sequence = new();
 
         public GameActionSequence Sequence => sequence ??= new GameActionSequence();
+        public void Configure(GameCondition[] conditions, GameAction[] actions,
+            GameConditionMode mode = GameConditionMode.All) =>
+            Sequence.Configure(conditions, actions, mode);
     }
 }

@@ -1,0 +1,6 @@
+{
+  "name": "GameSystems.Rideables",
+  "rootNamespace": "GameSystems.Rideables",
+  "references": ["GameSystems.Playables", "GameSystems.Sequencing", "GameSystems.Abilities", "GameSystems.Characters.Core", "GameSystems.Core", "Unity.InputSystem"],
+  "autoReferenced": true
+}

@@ -15,7 +15,6 @@ namespace GameSystems.Abilities.Editor
         bool showConditions = true;
         bool showActions = true;
         bool showPresentation = true;
-        bool showSpecific = true;
 
         public override bool RequiresConstantRepaint() => Application.isPlaying;
 
@@ -41,7 +40,6 @@ namespace GameSystems.Abilities.Editor
                 GameSystemsInspectorUI.EndFoldout();
             }
 
-            DrawSpecificProperties();
             SerializedProperty sequence = serializedObject.FindProperty("sequence");
             if (GameSystemsInspectorUI.Foldout(ref showConditions, "Start Conditions",
                     ability.Sequence.Conditions.Length == 0 ? "always" : ability.Sequence.ConditionMode.ToString()))
@@ -65,21 +63,6 @@ namespace GameSystems.Abilities.Editor
                 GameSystemsInspectorUI.EndFoldout();
             }
             serializedObject.ApplyModifiedProperties();
-        }
-
-        void DrawSpecificProperties()
-        {
-            if (target.GetType() == typeof(SequenceAbilityDefinition)) return;
-            if (!GameSystemsInspectorUI.Foldout(ref showSpecific, "Specific")) return;
-            SerializedProperty iterator = serializedObject.GetIterator();
-            bool enterChildren = true;
-            while (iterator.NextVisible(enterChildren))
-            {
-                enterChildren = false;
-                if (iterator.propertyPath is "reactionId" or "customReactionId")
-                    EditorGUILayout.PropertyField(iterator, true);
-            }
-            GameSystemsInspectorUI.EndFoldout();
         }
 
         void Draw(string name)

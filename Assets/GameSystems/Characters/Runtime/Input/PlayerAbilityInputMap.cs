@@ -10,6 +10,8 @@ namespace GameSystems.Characters
     public sealed class PlayerAbilityInputMap : ScriptableObject
     {
         public InputActionReference horizontal;
+        [Tooltip("Optional 2D movement action. Horizontal-only characters may leave this empty.")]
+        public InputActionReference movement;
         public PlayerAbilityBinding[] bindings;
     }
 }

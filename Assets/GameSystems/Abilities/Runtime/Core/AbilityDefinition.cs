@@ -7,6 +7,7 @@ namespace GameSystems.Abilities
 {
     public abstract class AbilityDefinition : ScriptableObject
     {
+        [SerializeField, Tooltip("Disable this ability without removing it from its ability set.")] bool disabled;
         [Header("Scheduling")]
         [SerializeField] bool autoStart;
         [SerializeField] int priority;
@@ -27,6 +28,7 @@ namespace GameSystems.Abilities
         [SerializeField] FeedbackSequence completeFeedback;
 
         public bool AutoStart => autoStart;
+        public bool Enabled => !disabled;
         public int Priority => priority;
         public float Cooldown => cooldown;
         public AbilityAuthority RequiredAuthority => requiredAuthority;

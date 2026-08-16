@@ -8,16 +8,21 @@ namespace GameSystems.Sequencing
     public abstract class GameAction
     {
         const int MinimumRunningHighlightFrames = 4;
+        [SerializeField, Tooltip("Skip this action without removing its configuration.")] bool disabled;
         [NonSerialized] GameActionDebugStatus debugStatus;
         [NonSerialized] GameActionDebugStatus pendingDebugStatus;
         [NonSerialized] int revealResultAtFrame;
+        [NonSerialized] string debugMessage;
         public GameActionDebugStatus DebugStatus =>
             debugStatus == GameActionDebugStatus.Running &&
             pendingDebugStatus is GameActionDebugStatus.Succeeded or GameActionDebugStatus.Failed &&
             Time.frameCount >= revealResultAtFrame
                 ? pendingDebugStatus
                 : debugStatus;
+        public string DebugMessage => debugMessage;
         public virtual string Summary => GetType().Name;
+        public bool Enabled => !disabled;
+        public void SetEnabled(bool value) => disabled = !value;
         public abstract GameActionRuntime CreateRuntime();
         internal void SetDebugStatus(GameActionDebugStatus value)
         {
@@ -45,5 +50,7 @@ namespace GameSystems.Sequencing
 
             debugStatus = value;
         }
+
+        internal void SetDebugMessage(string value) => debugMessage = value;
     }
 }

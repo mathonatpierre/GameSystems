@@ -1,0 +1,10 @@
+{
+  "name": "GameSystems.SequencingHooks",
+  "rootNamespace": "GameSystems.Sequencing.Hooks",
+  "references": [
+    "GameSystems.Sequencing",
+    "GameSystems.Hooks"
+  ],
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

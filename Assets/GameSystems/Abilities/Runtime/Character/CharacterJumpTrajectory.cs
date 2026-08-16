@@ -16,6 +16,20 @@ namespace GameSystems.Abilities
         public bool TryGetLandingDistance(float verticalRise, out float distance)
             => TryGetLanding(verticalRise, out distance, out _);
 
+        public bool TryGetHeightAtDistance(float distance, out float height)
+        {
+            height = 0f;
+            if (!IsValid || distance < 0f || distance > samples[^1].x) return false;
+            for (int i = 1; i < samples.Length; i++)
+            {
+                if (samples[i].x < distance) continue;
+                float blend = Mathf.InverseLerp(samples[i - 1].x, samples[i].x, distance);
+                height = Mathf.Lerp(samples[i - 1].y, samples[i].y, blend);
+                return true;
+            }
+            return false;
+        }
+
         public bool TryGetLanding(float verticalRise, out float distance, out float time)
         {
             distance = 0f;

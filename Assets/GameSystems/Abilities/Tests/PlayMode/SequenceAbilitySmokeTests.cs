@@ -411,11 +411,13 @@ namespace GameSystems.Abilities.Tests
             Assert.That(slimeBrain.Motor.Result.Ground.IsGrounded, Is.True,
                 "Slime did not fall back to the ground after its evade arc.");
 
-            Assert.That(brain.RequestReaction(ReactionId.Respawn), Is.True, "Respawn reaction was rejected.");
+            ReactionDefinition respawn = AssetDatabase.LoadAssetAtPath<ReactionDefinition>(
+                "Assets/Lennie/Data/Characters/Lennie/ABILITY_Respawn.asset");
+            Assert.That(brain.RequestReaction(respawn), Is.True, "Respawn reaction was rejected.");
             yield return new WaitForSecondsRealtime(1.45f);
             yield return null;
             Assert.That(brain.IsAbilityLocked, Is.False, "Respawn sequence did not release its lock.");
-            Assert.That(ContainsActive(brain, ReactionId.Respawn), Is.False,
+            Assert.That(ContainsActive(brain, respawn), Is.False,
                 "Respawn sequence did not complete.");
             Assert.That(brain.CountActive(AbilityCategory.Locomotion), Is.GreaterThan(0),
                 "Locomotion did not restart after respawn.");
@@ -482,10 +484,10 @@ namespace GameSystems.Abilities.Tests
             return null;
         }
 
-        static bool ContainsActive(CharacterAbilityController controller, ReactionId id)
+        static bool ContainsActive(CharacterAbilityController controller, ReactionDefinition definition)
         {
             for (int i = 0; i < controller.ActiveAbilities.Count; i++)
-                if (controller.ActiveAbilities[i].Definition is ReactionDefinition reaction && reaction.Matches(id))
+                if (controller.ActiveAbilities[i].Definition == definition)
                     return true;
             return false;
         }
@@ -493,7 +495,7 @@ namespace GameSystems.Abilities.Tests
         static bool ContainsActive(CharacterAbilityController controller, string id)
         {
             for (int i = 0; i < controller.ActiveAbilities.Count; i++)
-                if (controller.ActiveAbilities[i].Definition is ReactionDefinition reaction && reaction.Matches(id))
+                if (controller.ActiveAbilities[i].Definition is ReactionDefinition reaction && reaction.name.Contains(id))
                     return true;
             return false;
         }

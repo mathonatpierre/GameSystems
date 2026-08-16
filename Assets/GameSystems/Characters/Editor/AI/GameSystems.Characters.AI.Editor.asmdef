@@ -1,0 +1,12 @@
+{
+  "name": "GameSystems.Characters.AI.Editor",
+  "rootNamespace": "GameSystems.Characters.AI.Editor",
+  "references": [
+    "GameSystems.Characters",
+    "GameSystems.Sequencing",
+    "GameSystems.Sequencing.Editor",
+    "GameSystems.Core.NodeEditor"
+  ],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

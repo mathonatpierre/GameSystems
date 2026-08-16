@@ -13,7 +13,9 @@ namespace GameSystems.Feedbacks
             if (prefab == null) return null;
             if (!Pools.TryGetValue(prefab, out Queue<GameObject> pool))
                 Pools[prefab] = pool = new Queue<GameObject>();
-            GameObject instance = pool.Count > 0 ? pool.Dequeue() : Object.Instantiate(prefab);
+            GameObject instance = null;
+            while (pool.Count > 0 && instance == null) instance = pool.Dequeue();
+            if (instance == null) instance = Object.Instantiate(prefab);
             instance.transform.SetPositionAndRotation(position, rotation);
             instance.SetActive(true);
             Runner.Instance.StartCoroutine(ReturnAfter(prefab, instance, lifetime));
@@ -25,7 +27,8 @@ namespace GameSystems.Feedbacks
             yield return new WaitForSecondsRealtime(Mathf.Max(.01f, delay));
             if (instance == null) yield break;
             instance.SetActive(false);
-            Pools[prefab].Enqueue(instance);
+            if (prefab != null && Pools.TryGetValue(prefab, out Queue<GameObject> pool))
+                pool.Enqueue(instance);
         }
 
         sealed class Runner : MonoBehaviour

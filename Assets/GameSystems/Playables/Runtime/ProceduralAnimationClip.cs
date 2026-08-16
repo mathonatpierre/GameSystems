@@ -104,10 +104,13 @@ namespace GameSystems.Playables
             if (!initialized) { baseline = target.localRotation; initialized = true; }
             angle = Mathf.Repeat(angle - context.GetFloat(velocityParameter) * deltaTime /
                 Mathf.Max(.01f, radius) * Mathf.Rad2Deg, 360f);
-            Quaternion frameBase = FrameBase(context, target.localRotation, baseline);
-            target.localRotation = Quaternion.Slerp(frameBase, frameBase * Quaternion.Euler(0f, 0f, angle), weight);
+            // The integrated angle is absolute. Applying it on the transform written
+            // by the previous frame compounds the rotation and produces visible
+            // jumps, especially when the motor changes direction.
+            Quaternion animated = baseline * Quaternion.Euler(0f, 0f, angle);
+            target.localRotation = Quaternion.Slerp(baseline, animated, weight);
             context.SetFloat("ProceduralRotationAngle", angle);
-            context.SetFloat("ProceduralAppliedRotation", Quaternion.Angle(frameBase, target.localRotation));
+            context.SetFloat("ProceduralAppliedRotation", Quaternion.Angle(baseline, target.localRotation));
         }
         internal override void ResetRuntime() { base.ResetRuntime(); angle = 0f; initialized = false; }
     }

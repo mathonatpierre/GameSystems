@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using GameSystems.Hooks;
 using UnityEngine.Scripting.APIUpdating;
+using GameSystems.Characters.AI;
 
 namespace GameSystems.Characters
 {
@@ -15,6 +16,7 @@ namespace GameSystems.Characters
         HookId targetHook;
         [SerializeField] LayerMask lineOfSightMask = ~0;
         [SerializeField] CharacterAITraversalSettings traversal = new();
+        [SerializeField] CharacterBehaviorTree behaviorTree;
         [SerializeField] CharacterAIDecision[] decisions;
 
         public float DecisionInterval => Mathf.Max(.01f, decisionInterval);
@@ -22,6 +24,7 @@ namespace GameSystems.Characters
         public HookId TargetHook => targetHook;
         public LayerMask LineOfSightMask => lineOfSightMask;
         public CharacterAITraversalSettings Traversal => traversal ??= new CharacterAITraversalSettings();
+        public CharacterBehaviorTree BehaviorTree => behaviorTree;
         public CharacterAIDecision[] Decisions => decisions ?? Array.Empty<CharacterAIDecision>();
 
         public void Configure(float interval, float radius, HookId target,
@@ -32,5 +35,7 @@ namespace GameSystems.Characters
             targetHook = target;
             decisions = values ?? Array.Empty<CharacterAIDecision>();
         }
+
+        public void ConfigureBehaviorTree(CharacterBehaviorTree tree) => behaviorTree = tree;
     }
 }

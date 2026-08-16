@@ -1,0 +1,6 @@
+{
+  "name": "GameSystems.Camera",
+  "rootNamespace": "GameSystems.Camera",
+  "references": ["GameSystems.Hooks", "GameSystems.Sequencing", "GameSystems.Core", "GameSystems.Feedbacks", "GameSystems.Abilities", "GameSystems.Characters.Core"],
+  "autoReferenced": true
+}

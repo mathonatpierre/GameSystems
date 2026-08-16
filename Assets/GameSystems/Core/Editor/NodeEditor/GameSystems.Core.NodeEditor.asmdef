@@ -1,0 +1,7 @@
+{
+  "name": "GameSystems.Core.NodeEditor",
+  "rootNamespace": "GameSystems.Core.Editor.NodeEditor",
+  "references": [],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

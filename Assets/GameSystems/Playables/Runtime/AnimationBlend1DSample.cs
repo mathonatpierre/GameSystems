@@ -11,5 +11,12 @@ namespace GameSystems.Playables
 
         public float Threshold => threshold;
         public AnimationClipSettings Animation => animation;
+
+        public void Configure(float value, AnimationClip clip, bool loop = true,
+            float speed = 1f)
+        {
+            threshold = value;
+            animation.Configure(clip, loop, speed);
+        }
     }
 }

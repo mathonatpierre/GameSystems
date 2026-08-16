@@ -5,7 +5,7 @@ Shader "Lennie/PS1 Vegetation Wind"
         _BaseColor("Base Color", Color) = (0.08,0.22,0.07,1)
         _TipColor("Tip / Flower Color", Color) = (0.35,0.62,0.18,1)
         _VertexSnap("Vertex Snap", Range(100,800)) = 300
-        _ColorSteps("Color Steps", Range(6,64)) = 20
+        _ColorSteps("Color Steps", Range(6,64)) = 64
         _WindStrength("Wind Strength", Range(0,0.25)) = 0.055
         _WindSpeed("Wind Speed", Range(0,5)) = 1.4
         _GustStrength("Gust Strength", Range(0,3)) = 1.7
@@ -28,6 +28,9 @@ Shader "Lennie/PS1 Vegetation Wind"
             #pragma vertex Vert
             #pragma fragment Frag
             #pragma multi_compile_instancing
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS_CASCADE
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -61,6 +64,7 @@ Shader "Lennie/PS1 Vegetation Wind"
                 float purification : TEXCOORD2;
                 float3 positionWS : TEXCOORD3;
                 float flower : TEXCOORD4;
+                float4 shadowCoord : TEXCOORD5;
             };
 
             Varyings Vert(Attributes input)
@@ -158,6 +162,7 @@ Shader "Lennie/PS1 Vegetation Wind"
                 // Ivy flowers alone use low vertex alpha. Other flowers and leaves keep
                 // their original palette even when their RGB vertex color is white.
                 output.flower = 1.0 - step(.8, input.color.a);
+                output.shadowCoord = TransformWorldToShadowCoord(positionWS);
                 return output;
             }
 
@@ -166,15 +171,17 @@ Shader "Lennie/PS1 Vegetation Wind"
                 clip(input.purification - .018h);
                 half3 albedo = lerp(_BaseColor.rgb, _TipColor.rgb, input.growth);
                 albedo = lerp(albedo, half3(.94h, .96h, .9h), saturate(input.flower));
-                Light mainLight = GetMainLight();
-                half lightTerm = .42h + saturate(dot(normalize(input.normalWS), mainLight.direction)) * .58h;
+                Light mainLight = GetMainLight(input.shadowCoord);
+                half ndl = saturate(dot(normalize(input.normalWS), mainLight.direction));
+                half shadow = smoothstep(.05h, .95h, mainLight.shadowAttenuation);
+                half lightTerm = (.2h + ndl * .8h) * lerp(.34h, 1.0h, shadow);
                 half localAtmosphere = input.purification * lerp(.15h, 1.0h, (half)_PurificationGlobalStrength);
                 half3 normal = normalize(input.normalWS);
                 half3 viewDirection = SafeNormalize(_WorldSpaceCameraPos - input.positionWS);
                 half backLight = pow(saturate(dot(-normal, mainLight.direction)), 2.0h);
                 half rim = pow(1.0h - saturate(dot(normal, viewDirection)), 2.0h);
                 half translucency = (backLight * .82h + rim * .42h) * input.growth * localAtmosphere;
-                half3 color = albedo * (lightTerm * mainLight.color + .18h + localAtmosphere * half3(.24h, .2h, .065h));
+                half3 color = albedo * (lightTerm * mainLight.color + .11h + localAtmosphere * half3(.22h, .25h, .055h));
                 color += _TipColor.rgb * translucency;
                 #if defined(_ADDITIONAL_LIGHTS)
                 uint localLightCount = GetAdditionalLightsCount();

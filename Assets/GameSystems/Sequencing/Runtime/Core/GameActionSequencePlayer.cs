@@ -33,10 +33,11 @@ namespace GameSystems.Sequencing
             onCompleted?.Invoke();
         }
 
-        public bool Play()
+        public bool Play() => Play(new GameActionContext(gameObject, this, gameObject));
+
+        public bool Play(in GameActionContext context)
         {
             Stop();
-            GameActionContext context = new(gameObject, this, gameObject);
             if (Sequence == null || !Sequence.CanRun(context))
             {
                 State = GameActionSequencePlayerState.Rejected;

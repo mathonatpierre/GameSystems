@@ -45,6 +45,28 @@ namespace GameSystems.Playables
                 if (clip.GetTime() >= end) clip.SetTime(start + (clip.GetTime() - start) % duration);
             }
 
+            public override float NormalizedTime
+            {
+                get
+                {
+                    if (settings?.Clip == null) return 0f;
+                    double start = settings.Clip.length * settings.NormalizedStart;
+                    double duration = Mathf.Max(.001f,
+                        settings.Clip.length * (settings.NormalizedEnd - settings.NormalizedStart));
+                    return (float)((clip.GetTime() - start) / duration);
+                }
+            }
+
+            public override void SeekNormalized(float normalizedTime)
+            {
+                if (settings?.Clip == null) return;
+                double start = settings.Clip.length * settings.NormalizedStart;
+                double duration = Mathf.Max(.001f,
+                    settings.Clip.length * (settings.NormalizedEnd - settings.NormalizedStart));
+                clip.SetTime(start + duration * normalizedTime);
+                clip.SetDone(false);
+            }
+
             public override void Restart()
             {
                 if (settings?.Clip == null) return;

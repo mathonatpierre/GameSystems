@@ -24,18 +24,25 @@ namespace GameSystems.Playables
         AnimationMixerPlayable rootMixer;
         PlayableAnimationAsset current;
         IPlayablePostProcessor[] postProcessors;
+        IPlayableRootMotionReceiver[] rootMotionReceivers;
         float currentBlendDuration = .08f;
         float currentFacingOffset;
+        Vector3 animatorReferenceLocalPosition;
+        bool hasAnimatorReferenceLocalPosition;
 
         public PlayableAnimationContext Context => context;
         public PlayableAnimationAsset Current => current;
         public int EvaluationCount { get; private set; }
         public float CurrentWeight => current != null && entries.TryGetValue(current, out Entry entry) ? entry.Weight : 0f;
+        public float NormalizedTime => current != null && entries.TryGetValue(current, out Entry entry)
+            ? entry.Runtime.NormalizedTime
+            : 0f;
 
         public void Configure(Animator value, bool findAutomatically = true)
         {
             bool outputChanged = animator != value;
             animator = value;
+            if (outputChanged) CaptureAnimatorReferencePosition();
             autoFindAnimator = findAutomatically;
             if (outputChanged && graph.IsValid())
             {
@@ -48,22 +55,36 @@ namespace GameSystems.Playables
                 if (selected != null) Play(selected, currentBlendDuration, true);
                 return;
             }
-            if (isActiveAndEnabled) EnsureGraph();
+            if (isActiveAndEnabled)
+            {
+                EnsureGraph();
+                RefreshPostProcessors();
+            }
         }
 
         void Awake()
         {
             if (animator == null && autoFindAnimator) animator = GetComponentInChildren<Animator>();
+            CaptureAnimatorReferencePosition();
             EnsureGraph();
+        }
+
+        void CaptureAnimatorReferencePosition()
+        {
+            hasAnimatorReferenceLocalPosition = animator != null;
+            if (hasAnimatorReferenceLocalPosition)
+                animatorReferenceLocalPosition = animator.transform.localPosition;
         }
 
         public void Play(PlayableAnimationAsset asset, float blendDuration = -1f, bool forceRestart = false)
         {
             if (asset == null) return;
             EnsureGraph();
+            RefreshPostProcessors();
             Entry entry = GetOrCreate(asset);
             bool changed = current != asset;
             current = asset;
+            if (animator != null) animator.applyRootMotion = asset.ApplyRootMotion;
             currentBlendDuration = blendDuration >= 0f ? blendDuration : asset.DefaultBlendDuration;
             if (changed || forceRestart || asset.RestartWhenPlayed) entry.Runtime.Restart();
         }
@@ -75,6 +96,7 @@ namespace GameSystems.Playables
             graph.SetTimeUpdateMode(DirectorUpdateMode.GameTime);
             if (animator != null)
             {
+                if (!hasAnimatorReferenceLocalPosition) CaptureAnimatorReferencePosition();
                 animator.runtimeAnimatorController = null;
                 animator.applyRootMotion = false;
                 animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
@@ -83,12 +105,20 @@ namespace GameSystems.Playables
                 output.SetSourcePlayable(rootMixer);
             }
             context.Configure(gameObject, GetComponent<PlayableAnimationBindings>(), animator != null);
+            RefreshPostProcessors();
+            rootMotionReceivers = GetComponents<IPlayableRootMotionReceiver>();
+            if (animator != null) graph.Play();
+        }
+
+        void RefreshPostProcessors()
+        {
             MonoBehaviour[] behaviours = GetComponents<MonoBehaviour>();
             var processors = new List<IPlayablePostProcessor>();
             for (int i = 0; i < behaviours.Length; i++)
-                if (behaviours[i] is IPlayablePostProcessor processor) processors.Add(processor);
+                if (behaviours[i].isActiveAndEnabled && behaviours[i] is IPlayablePostProcessor processor)
+                    processors.Add(processor);
+            processors.Sort((left, right) => left.Order.CompareTo(right.Order));
             postProcessors = processors.ToArray();
-            if (animator != null) graph.Play();
         }
 
         Entry GetOrCreate(PlayableAnimationAsset asset)
@@ -124,14 +154,40 @@ namespace GameSystems.Playables
                 context.SetFloat("PlayableWeight", entry.Weight);
                 entry.Runtime.Evaluate(context);
             }
+            // Root translation belongs to the receiver (usually the character motor).
+            // Some clips also key the Animator transform, so neutralize that visual residue.
+            if (animator != null && hasAnimatorReferenceLocalPosition)
+                animator.transform.localPosition = animatorReferenceLocalPosition;
+            if (postProcessors == null || postProcessors.Length == 0) RefreshPostProcessors();
             for (int i = 0; i < postProcessors.Length; i++)
-                postProcessors[i]?.ApplyPlayablePostProcess();
+            {
+                IPlayablePostProcessor processor = postProcessors[i];
+                if (processor == null) continue;
+                if (processor is Behaviour behaviour && !behaviour.isActiveAndEnabled) continue;
+                processor.ApplyPlayablePostProcess();
+            }
+        }
+
+        public void SeekNormalized(float normalizedTime, bool evaluateGraph = true)
+        {
+            if (current == null || !entries.TryGetValue(current, out Entry entry)) return;
+            entry.Runtime.SeekNormalized(normalizedTime);
+            if (evaluateGraph && graph.IsValid()) graph.Evaluate(0f);
         }
 
         void OnDisable()
         {
             if (graph.IsValid()) graph.Destroy();
             entries.Clear(); current = null; currentFacingOffset = 0f;
+        }
+
+        void OnAnimatorMove()
+        {
+            if (animator == null || current == null || !current.ApplyRootMotion) return;
+            Vector3 deltaPosition = animator.deltaPosition;
+            Quaternion deltaRotation = animator.deltaRotation;
+            for (int i = 0; i < rootMotionReceivers.Length; i++)
+                rootMotionReceivers[i]?.ApplyPlayableRootMotion(deltaPosition, deltaRotation);
         }
     }
 }

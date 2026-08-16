@@ -1,0 +1,12 @@
+{
+  "name": "GameSystems.Inputs",
+  "rootNamespace": "GameSystems.Inputs",
+  "references": [
+    "GameSystems.Characters",
+    "GameSystems.Sequencing",
+    "Unity.InputSystem",
+    "Unity.ugui"
+  ],
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

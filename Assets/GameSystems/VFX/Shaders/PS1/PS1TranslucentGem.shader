@@ -4,10 +4,11 @@ Shader "Lennie/PS1 Translucent Gem"
     {
         _BaseColor("Gem Color", Color) = (.32,.92,1,.62)
         _RimColor("Rim Color", Color) = (1,.42,.92,1)
-        _Emission("Emission", Range(0,4)) = 1.4
+        _Emission("Emission", Range(0,6)) = 2.8
+        _ReflectionStrength("Reflections", Range(0,4)) = 1.35
         _RimPower("Rim Width", Range(.5,8)) = 2.2
         _VertexSnap("Vertex Snap", Range(64,640)) = 220
-        _ColorSteps("Color Steps", Range(2,32)) = 8
+        _ColorSteps("Color Steps", Range(2,64)) = 64
     }
     SubShader
     {
@@ -29,6 +30,7 @@ Shader "Lennie/PS1 Translucent Gem"
                 float4 _BaseColor;
                 float4 _RimColor;
                 float _Emission;
+                float _ReflectionStrength;
                 float _RimPower;
                 float _VertexSnap;
                 float _ColorSteps;
@@ -61,6 +63,8 @@ Shader "Lennie/PS1 Translucent Gem"
                 half3 color = _BaseColor.rgb * diffuse;
                 color += _BaseColor.rgb * _Emission * .22h * pulse;
                 color += _RimColor.rgb * rim * _Emission;
+                half reflection = pow(saturate(dot(reflect(-light.direction, normalWS), viewWS)), 24.0h);
+                color += lerp(_BaseColor.rgb, _RimColor.rgb, .65h) * reflection * _ReflectionStrength;
                 half alpha = saturate(_BaseColor.a + rim * .22h);
                 return half4(color, alpha);
             }

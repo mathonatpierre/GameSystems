@@ -1,6 +1,8 @@
 #if UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
@@ -9,6 +11,8 @@ namespace GameSystems.Sequencing.Editor
 {
     public static class ManagedReferenceListUtility
     {
+        static readonly Dictionary<string, ReorderableList> Lists = new();
+
         public static void DrawLayout(SerializedProperty property, Type baseType)
         {
             Create(property, baseType).DoLayoutList();
@@ -20,14 +24,24 @@ namespace GameSystems.Sequencing.Editor
         public static void Draw(Rect rect, SerializedProperty property, Type baseType) =>
             Create(property, baseType).DoList(rect);
 
-        static ReorderableList Create(SerializedProperty property, Type baseType) =>
-            new(property.serializedObject, property, true, false, true, true)
+        static ReorderableList Create(SerializedProperty property, Type baseType)
+        {
+            SerializedObject owner = property.serializedObject;
+            string key = $"{RuntimeHelpers.GetHashCode(owner)}:{property.propertyPath}:{baseType.FullName}";
+            if (Lists.TryGetValue(key, out ReorderableList list))
+                return list;
+
+            list = new ReorderableList(owner, property, true, false, true, true)
             {
                 elementHeightCallback = index => ElementHeight(property, index),
                 drawElementCallback = (rect, index, active, focused) => DrawElement(rect, property, index),
                 onAddDropdownCallback = (rect, _) => ShowAddMenu(property, baseType),
-                onRemoveCallback = value => Remove(value.serializedProperty, value.index)
+                onRemoveCallback = value => Remove(value.serializedProperty, value.index),
+                onReorderCallback = value => value.serializedProperty.serializedObject.ApplyModifiedProperties()
             };
+            Lists[key] = list;
+            return list;
+        }
 
         static float ElementHeight(SerializedProperty array, int index)
         {

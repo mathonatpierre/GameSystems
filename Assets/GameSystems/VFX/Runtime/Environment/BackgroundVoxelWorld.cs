@@ -4,12 +4,24 @@ using UnityEngine.Rendering;
 
 namespace GameSystems.VFX
 {
+    public readonly struct VoxelCavityVolume
+    {
+        public readonly Bounds Inner;
+        public readonly Bounds Outer;
+
+        public VoxelCavityVolume(Bounds inner, Bounds outer)
+        {
+            Inner = inner;
+            Outer = outer;
+        }
+    }
+
     [ExecuteAlways]
     public sealed class BackgroundVoxelWorld : MonoBehaviour
     {
         [Header("World Extent")]
         [SerializeField, Range(24, 96)] int width = 56;
-        [SerializeField, Range(16, 72)] int depth = 36;
+        [SerializeField, Range(16, 128)] int depth = 36;
         [SerializeField, Range(8, 30)] int maximumHeight = 18;
         [SerializeField, Range(4, 16)] int chunkSize = 8;
         [SerializeField, Range(0.6f, 2f)] float voxelSize = 1.15f;
@@ -28,10 +40,19 @@ namespace GameSystems.VFX
         [SerializeField, Range(0f, 0.8f)] float brokenTopAmount = 0.42f;
         [SerializeField, Range(0f, 0.6f)] float holesAmount = 0.18f;
         [SerializeField, Range(3, 32)] int structureStartDepth = 5;
+        [Header("Gameplay Clearance")]
+        [SerializeField, Min(0f)] float geometryHorizontalPadding = 3.5f;
+        [SerializeField, Min(0f)] float geometryVerticalClearance = 2f;
+        [SerializeField, Min(0f)] float visibilityDepthBehindGeometry = 14f;
         [SerializeField] Material material;
         readonly List<Bounds> levelGeometry = new();
+        readonly List<VoxelCavityVolume> cavityVolumes = new();
         float terrainBaseWorldY;
         float gameplayBackZ;
+        bool surroundGameplay;
+        float surroundingRadius;
+        float surroundingStructureDistance;
+        float surroundingNearHeight;
         int[,] groundHeights;
         bool[,,] occupancy;
 
@@ -64,9 +85,14 @@ namespace GameSystems.VFX
         }
 
         public void FitToPlayableLevel(float startX, float endX, float highestPlatform,
-            IReadOnlyList<Bounds> geometry = null)
+            IReadOnlyList<Bounds> geometry = null, float worldSurroundRadius = 0f,
+            float nearSceneryDistance = 0f, float nearSceneryHeightOverride = 0f,
+            IReadOnlyList<VoxelCavityVolume> cavities = null)
         {
             levelGeometry.Clear();
+            cavityVolumes.Clear();
+            if (cavities != null)
+                for (int i = 0; i < cavities.Count; i++) cavityVolumes.Add(cavities[i]);
             float lowestPlatform = highestPlatform;
             float furthestBack = transform.position.z;
             if (geometry != null)
@@ -83,14 +109,22 @@ namespace GameSystems.VFX
             voxelSize = Mathf.Max(1.15f, span / 512f);
             width = Mathf.Clamp(Mathf.CeilToInt(span / voxelSize), 24, 512);
             chunkSize = width > 240 ? 16 : 8;
-            depth = Mathf.Clamp(Mathf.RoundToInt(46f + span * .1f), 40, 80);
+            surroundGameplay = worldSurroundRadius > 0f;
+            surroundingRadius = Mathf.Max(0f, worldSurroundRadius);
+            surroundingStructureDistance = Mathf.Max(0f, nearSceneryDistance);
+            surroundingNearHeight = Mathf.Max(0f, nearSceneryHeightOverride);
+            depth = surroundGameplay
+                ? Mathf.Clamp(Mathf.CeilToInt(surroundingRadius * 2f / voxelSize), 40, 128)
+                : Mathf.Clamp(Mathf.RoundToInt(46f + span * .1f), 40, 80);
             terrainBaseWorldY = lowestPlatform - 8f;
             maximumHeight = Mathf.Clamp(Mathf.CeilToInt((highestPlatform - terrainBaseWorldY + 18f) / voxelSize), 12, 72);
             gameplayBackZ = furthestBack + 6f;
             Vector3 position = transform.position;
             position.x = (startX + endX) * .5f;
             position.y = terrainBaseWorldY;
-            position.z = -depth * voxelSize * .32f;
+            position.z = surroundGameplay
+                ? -depth * voxelSize * .5f
+                : -depth * voxelSize * .32f;
             transform.position = position;
             BuildGroundHeightMap();
             Generate();
@@ -115,13 +149,13 @@ namespace GameSystems.VFX
                     float dz = Mathf.Max(bounds.min.z - worldCenter.z, 0f, worldCenter.z - bounds.max.z);
                     float distance = Mathf.Sqrt(dx * dx + dz * dz);
                     if (distance > 7f) continue;
-                    float support = bounds.min.y - voxelSize * .65f;
+                    float support = bounds.min.y - Mathf.Max(geometryVerticalClearance, voxelSize);
                     float blend = 1f - Mathf.SmoothStep(0f, 1f, distance / 7f);
                     supportedTop = Mathf.Min(supportedTop, Mathf.Lerp(groundTop, support, blend));
                 }
-                if (!float.IsPositiveInfinity(supportedTop)) groundTop = Mathf.Max(groundTop, supportedTop);
+                if (!float.IsPositiveInfinity(supportedTop)) groundTop = Mathf.Min(groundTop, supportedTop);
                 groundHeights[x, z] = Mathf.Clamp(
-                    Mathf.CeilToInt((groundTop - terrainBaseWorldY) / voxelSize), 1, maximumHeight);
+                    Mathf.FloorToInt((groundTop - terrainBaseWorldY) / voxelSize), 1, maximumHeight);
             }
         }
 
@@ -289,6 +323,9 @@ namespace GameSystems.VFX
             Vector3 localCenter = new((x - width * .5f + .5f) * voxelSize,
                 (y + .5f) * voxelSize, (z + .5f) * voxelSize);
             Vector3 worldCenter = transform.TransformPoint(localCenter);
+            float voxelTop = worldCenter.y + voxelSize * .5f;
+            if (IsCavityShell(worldCenter)) return true;
+            if (voxelTop > MaximumVisibleHeight(worldCenter.x, worldCenter.z)) return false;
             int ground = groundHeights != null && groundHeights.GetLength(0) == width &&
                          groundHeights.GetLength(1) == depth
                 ? groundHeights[x, z]
@@ -298,13 +335,32 @@ namespace GameSystems.VFX
 
             // Keep the first depth layers as ground relief only. Tall isolated towers
             // close to the gameplay camera read as accidental green pylons.
-            if (worldCenter.z < gameplayBackZ || z < structureStartDepth) return false;
+            float sceneryDistance;
+            if (surroundGameplay)
+            {
+                sceneryDistance = DistanceFromGameplay(worldCenter.x, worldCenter.z);
+                float structureDistance = surroundingStructureDistance > 0f
+                    ? surroundingStructureDistance : structureStartDepth * voxelSize;
+                if (sceneryDistance < structureDistance) return false;
+            }
+            else
+            {
+                if (worldCenter.z < gameplayBackZ || z < structureStartDepth) return false;
+                sceneryDistance = z * voxelSize;
+            }
 
             // Sparse architectural masses become taller and more monumental toward the horizon.
             int cellX = x / 4;
             int cellZ = z / 4;
             float chance = Hash(cellX, cellZ, seed);
-            float horizon = Mathf.InverseLerp(2f, depth, z);
+            float horizon = surroundGameplay
+                ? Mathf.InverseLerp(surroundingStructureDistance > 0f
+                        ? surroundingStructureDistance : structureStartDepth * voxelSize,
+                    Mathf.Max((surroundingStructureDistance > 0f
+                        ? surroundingStructureDistance : structureStartDepth * voxelSize) + 1f,
+                        surroundingRadius),
+                    sceneryDistance)
+                : Mathf.InverseLerp(2f, depth, z);
             float growth = Mathf.Lerp(horizon * .35f, horizon, distanceGrowth);
             bool structure = chance > Mathf.Lerp(1f - structureDensity * .55f, 1f - structureDensity, growth);
             if (!structure) return false;
@@ -312,11 +368,63 @@ namespace GameSystems.VFX
             int insetZ = z & 3;
             int footprint = chance > .88f ? 3 : 2;
             if (insetX >= footprint || insetZ >= footprint) return false;
-            int towerHeight = ground + 2 + Mathf.FloorToInt(Hash(cellX + 91, cellZ - 37, seed) * Mathf.Lerp(nearStructureHeight, farStructureHeight, growth));
+            float localNearHeight = surroundingNearHeight > 0f
+                ? surroundingNearHeight : nearStructureHeight;
+            int towerHeight = ground + 2 + Mathf.FloorToInt(Hash(cellX + 91, cellZ - 37, seed) * Mathf.Lerp(localNearHeight, farStructureHeight, growth));
             towerHeight = Mathf.Min(towerHeight, maximumHeight);
             bool brokenTop = y > towerHeight - 4 && Hash(x + y * 7, z - y * 3, seed + 19) < brokenTopAmount;
             bool window = y > ground + 2 && (y % 4 == 2) && insetX == 0 && insetZ == 0 && Hash(x, y + z, seed + 73) < holesAmount * 1.8f;
             return y < towerHeight && !brokenTop && !window;
+        }
+
+        bool IsCavityShell(Vector3 worldCenter)
+        {
+            for (int i = 0; i < cavityVolumes.Count; i++)
+            {
+                VoxelCavityVolume volume = cavityVolumes[i];
+                if (!volume.Outer.Contains(worldCenter)) continue;
+                // Ignore the longitudinal inner bounds to keep both ends open.
+                bool insidePassage = worldCenter.y > volume.Inner.min.y &&
+                                     worldCenter.y < volume.Inner.max.y &&
+                                     worldCenter.z > volume.Inner.min.z &&
+                                     worldCenter.z < volume.Inner.max.z;
+                if (!insidePassage) return true;
+            }
+            return false;
+        }
+
+        float MaximumVisibleHeight(float worldX, float worldZ)
+        {
+            float ceiling = float.PositiveInfinity;
+            for (int i = 0; i < levelGeometry.Count; i++)
+            {
+                Bounds bounds = levelGeometry[i];
+                if (worldX < bounds.min.x - geometryHorizontalPadding ||
+                    worldX > bounds.max.x + geometryHorizontalPadding) continue;
+
+                // Protect both the physical space below the platform and the view
+                // corridor behind it. This also receives swept bounds for movers.
+                float backPadding = surroundGameplay
+                    ? geometryHorizontalPadding : visibilityDepthBehindGeometry;
+                if (worldZ < bounds.min.z - backPadding ||
+                    worldZ > bounds.max.z + backPadding) continue;
+                ceiling = Mathf.Min(ceiling,
+                    bounds.min.y - Mathf.Max(geometryVerticalClearance, voxelSize * .75f));
+            }
+            return ceiling;
+        }
+
+        float DistanceFromGameplay(float worldX, float worldZ)
+        {
+            float nearest = float.PositiveInfinity;
+            for (int i = 0; i < levelGeometry.Count; i++)
+            {
+                Bounds bounds = levelGeometry[i];
+                float dx = Mathf.Max(bounds.min.x - worldX, 0f, worldX - bounds.max.x);
+                float dz = Mathf.Max(bounds.min.z - worldZ, 0f, worldZ - bounds.max.z);
+                nearest = Mathf.Min(nearest, Mathf.Sqrt(dx * dx + dz * dz));
+            }
+            return float.IsPositiveInfinity(nearest) ? surroundingRadius : nearest;
         }
 
         static float Hash(int x, int z, int value)
