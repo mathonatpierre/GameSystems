@@ -20,6 +20,8 @@ namespace GameSystems.Abilities
         readonly List<(AbilityRuntime runtime, AbilityStopReason reason)> pendingStops = new(4);
         readonly List<AbilityRequest> pendingRequests = new(4);
         readonly Dictionary<AbilityDefinition, double> lastStoppedAt = new();
+        readonly Dictionary<AbilityDefinition, double> lastAcceptedAt = new();
+        readonly Dictionary<string, double> lastAcceptedNameAt = new();
         readonly List<GameActionRunner> transitionActionRunners = new(4);
         readonly CharacterRequestBuffer requests = new();
         readonly List<AbilityRequest> orderedRequests = new(16);
@@ -38,6 +40,7 @@ namespace GameSystems.Abilities
         public ICharacterMotor Motor => motor;
         public bool IsAbilityLocked => locked;
         public bool SimulateMotorWhileLocked => simulateMotorWhileLocked;
+        public event Action<AbilityRequest, AbilityRequestResult> RequestResolved;
         public AbilityDefinition LastRequestedAbility { get; private set; }
         public AbilityRequestResult LastRequestResult { get; private set; }
         public string LastTransitionLabel { get; private set; }
@@ -253,11 +256,29 @@ namespace GameSystems.Abilities
             return Mathf.Max(0f, ability.Cooldown - (float)(Time.timeAsDouble - stopped));
         }
 
+        public bool WasAcceptedRecently(AbilityDefinition ability, float maximumAge) =>
+            ability != null && (lastAcceptedAt.TryGetValue(ability, out double time) ||
+            lastAcceptedNameAt.TryGetValue(ability.name, out time)) &&
+            Time.timeAsDouble - time <= Mathf.Max(0f, maximumAge);
+
+        public float GetAcceptedAge(AbilityDefinition ability)
+        {
+            if (ability == null || (!lastAcceptedAt.TryGetValue(ability, out double time) &&
+                !lastAcceptedNameAt.TryGetValue(ability.name, out time))) return float.PositiveInfinity;
+            return (float)(Time.timeAsDouble - time);
+        }
+
         AbilityRequestResult Record(in AbilityRequest request, AbilityRequestResult result)
         {
             LastRequestResult = result;
+            if (result == AbilityRequestResult.Accepted && request.Ability != null)
+            {
+                lastAcceptedAt[request.Ability] = Time.timeAsDouble;
+                lastAcceptedNameAt[request.Ability.name] = Time.timeAsDouble;
+            }
             if (request.Source is IAbilityRequestObserver observer)
                 observer.OnAbilityRequestResolved(request, result);
+            RequestResolved?.Invoke(request, result);
             return result;
         }
 

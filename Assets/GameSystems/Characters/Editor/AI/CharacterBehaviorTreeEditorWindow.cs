@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Linq;
 using GameSystems.Characters.AI;
 using GameSystems.Core.Editor.NodeEditor;
+using GameSystems.Sequencing;
+using GameSystems.Sequencing.Editor;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEditor.UIElements;
@@ -17,6 +19,8 @@ namespace GameSystems.Characters.AI.Editor
         CharacterBehaviorTree tree;
         BehaviorTreeGraphView graph;
         IMGUIContainer inspector;
+        ObjectField treeField;
+        SerializedObject treeSerialized;
         string selectedId;
 
         [MenuItem("Game Systems/Characters/AI/Behavior Tree Editor")]
@@ -26,11 +30,12 @@ namespace GameSystems.Characters.AI.Editor
         {
             rootVisualElement.Clear();
             var toolbar = new Toolbar();
-            var field = new ObjectField("Tree")
+            treeField = new ObjectField("Tree")
             { objectType = typeof(CharacterBehaviorTree), value = tree };
-            field.RegisterValueChangedCallback(evt => SetTree(evt.newValue as CharacterBehaviorTree));
-            toolbar.Add(field);
+            treeField.RegisterValueChangedCallback(evt => SetTree(evt.newValue as CharacterBehaviorTree));
+            toolbar.Add(treeField);
             toolbar.Add(new ToolbarButton(() => graph?.FrameAll()) { text = "Frame All" });
+            toolbar.Add(new ToolbarButton(AutoLayout) { text = "Auto Layout" });
             rootVisualElement.Add(toolbar);
 
             var split = new TwoPaneSplitView(0, 760, TwoPaneSplitViewOrientation.Horizontal);
@@ -43,19 +48,82 @@ namespace GameSystems.Characters.AI.Editor
             rootVisualElement.Add(split);
             rootVisualElement.schedule.Execute(() => graph?.RefreshRuntimeColors()).Every(100);
             if (tree == null && Selection.activeObject is CharacterBehaviorTree selected) tree = selected;
+            treeSerialized = tree != null ? new SerializedObject(tree) : null;
+            treeField.SetValueWithoutNotify(tree);
             graph.Load(tree);
         }
 
         void SetTree(CharacterBehaviorTree value)
         {
             tree = value;
+            treeSerialized = tree != null ? new SerializedObject(tree) : null;
+            treeField?.SetValueWithoutNotify(tree);
             selectedId = null;
             graph?.Load(tree);
             Repaint();
         }
 
+        void AutoLayout()
+        {
+            if (tree == null) return;
+            Undo.RecordObject(tree, "Auto Layout Behavior Tree");
+            tree.AutoLayout();
+            EditorUtility.SetDirty(tree);
+            graph.Load(tree);
+            graph.FrameAll();
+        }
+
         internal void Select(string id)
         { selectedId = id; inspector?.MarkDirtyRepaint(); }
+
+        internal void DrawNodeInline(string id)
+        {
+            if (tree == null || string.IsNullOrEmpty(id)) return;
+            SerializedObject serialized = treeSerialized ??= new SerializedObject(tree);
+            serialized.Update();
+            SerializedProperty node = FindNodeProperty(serialized, id);
+            if (node == null) return;
+
+            bool drewContent = false;
+            SerializedProperty conditions = node.FindPropertyRelative("conditions");
+            if (conditions != null)
+            {
+                DrawInlineListBox("Conditions", conditions, typeof(GameCondition));
+                drewContent = true;
+            }
+            SerializedProperty actions = node.FindPropertyRelative("actions");
+            if (actions != null)
+            {
+                if (drewContent) EditorGUILayout.Space(3f);
+                DrawInlineListBox("Actions", actions, typeof(GameAction));
+                drewContent = true;
+            }
+
+            if (drewContent && serialized.ApplyModifiedProperties())
+            {
+                EditorUtility.SetDirty(tree);
+                inspector?.MarkDirtyRepaint();
+            }
+        }
+
+        static void DrawInlineListBox(string title, SerializedProperty property, Type baseType)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField($"{title}  ({property.arraySize})", EditorStyles.miniBoldLabel);
+            ManagedReferenceListUtility.DrawLayout(property, baseType);
+            EditorGUILayout.EndVertical();
+        }
+
+        static SerializedProperty FindNodeProperty(SerializedObject serialized, string id)
+        {
+            SerializedProperty nodes = serialized.FindProperty("nodes");
+            for (int i = 0; i < nodes.arraySize; i++)
+            {
+                SerializedProperty candidate = nodes.GetArrayElementAtIndex(i);
+                if (candidate.FindPropertyRelative("id")?.stringValue == id) return candidate;
+            }
+            return null;
+        }
 
         void DrawInspector()
         {
@@ -72,16 +140,27 @@ namespace GameSystems.Characters.AI.Editor
                 return;
             }
 
-            SerializedObject serialized = new(tree);
+            SerializedObject serialized = treeSerialized ??= new SerializedObject(tree);
+            serialized.Update();
             SerializedProperty nodes = serialized.FindProperty("nodes");
             for (int i = 0; i < nodes.arraySize; i++)
             {
                 SerializedProperty candidate = nodes.GetArrayElementAtIndex(i);
                 SerializedProperty id = candidate.FindPropertyRelative("id");
                 if (id == null || id.stringValue != selectedId) continue;
-                serialized.Update();
-                EditorGUILayout.LabelField(node.Title, EditorStyles.boldLabel);
-                EditorGUILayout.PropertyField(candidate, true);
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                EditorGUILayout.LabelField(node.Kind, EditorStyles.miniBoldLabel);
+                SerializedProperty title = candidate.FindPropertyRelative("title");
+                EditorGUILayout.PropertyField(title, new GUIContent("Name"));
+                if (!string.IsNullOrWhiteSpace(node.Detail))
+                    EditorGUILayout.LabelField(node.Detail, EditorStyles.wordWrappedMiniLabel);
+                EditorGUILayout.EndVertical();
+                EditorGUILayout.Space(6f);
+
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                EditorGUILayout.LabelField("Node Data", EditorStyles.boldLabel);
+                DrawNodeProperties(candidate);
+                EditorGUILayout.EndVertical();
                 if (serialized.ApplyModifiedProperties())
                 {
                     EditorUtility.SetDirty(tree);
@@ -89,6 +168,36 @@ namespace GameSystems.Characters.AI.Editor
                 }
                 break;
             }
+        }
+
+        static void DrawNodeProperties(SerializedProperty node)
+        {
+            SerializedProperty property = node.Copy();
+            SerializedProperty end = property.GetEndProperty();
+            int childDepth = node.depth + 1;
+            bool enterChildren = true;
+            bool drewField = false;
+            while (property.NextVisible(enterChildren) &&
+                   !SerializedProperty.EqualContents(property, end))
+            {
+                enterChildren = false;
+                if (property.depth != childDepth) continue;
+                if (property.name is "id" or "title" or "editorPosition" or "children") continue;
+                if (property.name == "conditions")
+                {
+                    EditorGUILayout.LabelField("Conditions", EditorStyles.miniBoldLabel);
+                    ManagedReferenceListUtility.DrawLayout(property, typeof(GameCondition));
+                }
+                else if (property.name == "actions")
+                {
+                    EditorGUILayout.LabelField("Actions", EditorStyles.miniBoldLabel);
+                    ManagedReferenceListUtility.DrawLayout(property, typeof(GameAction));
+                }
+                else EditorGUILayout.PropertyField(property, true);
+                drewField = true;
+            }
+            if (!drewField)
+                EditorGUILayout.LabelField("This node has no editable data.", EditorStyles.miniLabel);
         }
 
         sealed class BehaviorTreeGraphView : NodeEditorGraphView
@@ -114,8 +223,10 @@ namespace GameSystems.Characters.AI.Editor
                         if (node == null) continue;
                         bool output = node is BehaviorCompositeNode;
                         NodeEditorNodeView view = AddNodeView(node.Id,
-                            node.Id == tree.RootId ? $"ROOT · {node.Title}" : node.Title,
+                            node.Id == tree.RootId ? $"ROOT · {node.EditorLabel}" : node.EditorLabel,
                             node.EditorPosition, node.Id != tree.RootId, output);
+                        ApplyTypeVisual(view, node);
+                        AddInlineLists(view, node);
                         ApplyRuntimeColor(view, node.Id);
                     }
                     for (int i = 0; i < definitions.Length; i++)
@@ -126,14 +237,30 @@ namespace GameSystems.Characters.AI.Editor
                 loading = false;
             }
 
+            void AddInlineLists(NodeEditorNodeView view, BehaviorNode node)
+            {
+                if (node is not ConditionBehaviorNode && node is not ActionSequenceBehaviorNode)
+                    return;
+                view.style.width = 380f;
+                view.style.minHeight = 130f;
+                var content = new IMGUIContainer(() => window.DrawNodeInline(node.Id));
+                content.style.marginLeft = 5f;
+                content.style.marginRight = 5f;
+                content.style.marginTop = 4f;
+                content.style.marginBottom = 5f;
+                view.extensionContainer.Add(content);
+                view.expanded = true;
+                view.RefreshExpandedState();
+            }
+
             void ApplyRuntimeColor(NodeEditorNodeView view, string id)
             {
-                view.titleContainer.style.backgroundColor = StyleKeyword.Null;
+                BehaviorNode node = tree?.Find(id);
+                view.titleContainer.style.backgroundColor = TypeColor(node);
                 view.tooltip = null;
                 if (!Application.isPlaying) return;
                 CharacterAIController controller = UnityEngine.Object
-                    .FindObjectsByType<CharacterAIController>(FindObjectsInactive.Include,
-                        FindObjectsSortMode.None)
+                    .FindObjectsByType<CharacterAIController>(FindObjectsInactive.Include)
                     .FirstOrDefault(value => value.Definition?.BehaviorTree == tree);
                 if (controller?.BehaviorRuntime?.States.TryGetValue(id,
                         out BehaviorNodeRuntimeState state) != true) return;
@@ -147,6 +274,38 @@ namespace GameSystems.Characters.AI.Editor
                 view.titleContainer.style.backgroundColor = color;
                 if (!string.IsNullOrEmpty(state.Message)) view.tooltip = state.Message;
             }
+
+            static void ApplyTypeVisual(NodeEditorNodeView view, BehaviorNode node)
+            {
+                GUIContent icon = EditorGUIUtility.IconContent(TypeIcon(node));
+                view.SetTypeVisual(icon?.image as Texture2D, TypeColor(node));
+            }
+
+            static string TypeIcon(BehaviorNode node) => node switch
+            {
+                SelectorBehaviorNode => "d_FilterByType",
+                SequenceBehaviorNode => "d_UnityEditor.AnimationWindow",
+                ConditionBehaviorNode => "d_FilterSelectedOnly",
+                ActionSequenceBehaviorNode => "d_PlayButton",
+                CooldownBehaviorNode => "d_UnityEditor.ProfilerWindow",
+                InverterBehaviorNode => "d_Refresh",
+                WaitBehaviorNode => "d_PauseButton",
+                SubTreeBehaviorNode => "d_UnityEditor.HierarchyWindow",
+                _ => "d_UnityEditor.ConsoleWindow"
+            };
+
+            static Color TypeColor(BehaviorNode node) => node switch
+            {
+                SelectorBehaviorNode => new Color(.12f, .42f, .46f),
+                SequenceBehaviorNode => new Color(.18f, .34f, .56f),
+                ConditionBehaviorNode => new Color(.58f, .43f, .12f),
+                ActionSequenceBehaviorNode => new Color(.18f, .46f, .28f),
+                CooldownBehaviorNode => new Color(.58f, .3f, .1f),
+                InverterBehaviorNode => new Color(.42f, .24f, .52f),
+                WaitBehaviorNode => new Color(.34f, .36f, .4f),
+                SubTreeBehaviorNode => new Color(.12f, .4f, .54f),
+                _ => new Color(.27f, .29f, .32f)
+            };
 
             public void RefreshRuntimeColors()
             {
@@ -162,8 +321,8 @@ namespace GameSystems.Characters.AI.Editor
                 AddCreateAction<SelectorBehaviorNode>(evt, "Create/Selector", position);
                 AddCreateAction<SequenceBehaviorNode>(evt, "Create/Sequence", position);
                 AddCreateAction<ConditionBehaviorNode>(evt, "Create/Condition", position);
-                AddCreateAction<RequestAbilityBehaviorNode>(evt, "Create/Request Ability", position);
                 AddCreateAction<InverterBehaviorNode>(evt, "Create/Inverter", position);
+                AddCreateAction<CooldownBehaviorNode>(evt, "Create/Cooldown", position);
                 AddCreateAction<WaitBehaviorNode>(evt, "Create/Wait", position);
                 AddCreateAction<ActionSequenceBehaviorNode>(evt, "Create/Action Sequence", position);
                 AddCreateAction<SubTreeBehaviorNode>(evt, "Create/Subtree", position);

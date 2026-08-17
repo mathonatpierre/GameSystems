@@ -65,6 +65,7 @@ namespace GameSystems.Characters
         float ledgeClimbProgress;
         Vector3 ledgeClimbFootCorrection;
         CharacterLedgeAnchor ledgeAnchor;
+        Matrix4x4 ledgeSupportMatrix;
         WallContact recentWallContact;
         float wallContactGraceRemaining;
         Quaternion defaultRootRotation;
@@ -181,11 +182,22 @@ namespace GameSystems.Characters
             if (!CanMove()) return;
             if (ledgeAnchored)
             {
-                velocity = Vector3.zero;
-                result = new CharacterMotorResult(Vector3.zero, default, default,
-                    result.Ground.IsGrounded, result.AirTime, 0f);
-                return;
+                if (!ledgeAnchor.IsValid)
+                {
+                    ClearLedgeAnchor();
+                }
+                else
+                {
+                    FollowLedgeSupport();
+                    velocity = Vector3.zero;
+                    result = new CharacterMotorResult(Vector3.zero, default, default,
+                        result.Ground.IsGrounded, result.AirTime, 0f);
+                    return;
+                }
             }
+
+            FollowWallSupport();
+            if (!CanMove()) return;
             gravityDirection = commands.HasGravityDirection
                 ? NormalizeGravity(commands.GravityDirection)
                 : NormalizeGravity(defaultGravityDirection);
@@ -313,7 +325,17 @@ namespace GameSystems.Characters
             Vector3 topOrigin = wall.point + forward * (radius + .04f) + up * ledgeTopProbeHeight;
             if (!Physics.Raycast(topOrigin, -up, out RaycastHit top,
                     ledgeTopProbeHeight * 2f, ~0, QueryTriggerInteraction.Ignore) ||
+                top.collider != wall.collider ||
                 Vector3.Dot(top.normal, up) < minimumGroundNormal) return false;
+
+            // A ledge is the exposed upper boundary of the wall that was probed.
+            // Reject seams where a second block continues above or behind that boundary.
+            Vector3 clearanceOrigin = top.point + up * .06f + wall.normal * (radius + .04f);
+            float clearanceDepth = radius + ledgeStandInset + .08f;
+            if (Physics.Raycast(clearanceOrigin, -wall.normal, out RaycastHit obstruction,
+                    clearanceDepth, ~0, QueryTriggerInteraction.Ignore) &&
+                obstruction.collider != controller && !obstruction.transform.IsChildOf(transform))
+                return false;
             Vector3 hang = top.point - up * (height * ledgeHangHeight) - forward * (radius + .025f);
             Vector3 stand = top.point + up * .035f + forward * (radius + ledgeStandInset);
             Vector3 gripPoint = top.point - wall.normal * .015f;
@@ -326,6 +348,8 @@ namespace GameSystems.Characters
         {
             ledgeAnchor = anchor;
             ledgeAnchored = true;
+            ledgeSupportMatrix = anchor.Support != null
+                ? anchor.Support.localToWorldMatrix : Matrix4x4.identity;
             velocity = Vector3.zero;
         }
 
@@ -362,6 +386,28 @@ namespace GameSystems.Characters
             ledgeClimbProgress = 0f;
             ledgeClimbFootCorrection = Vector3.zero;
             ledgeAnchor = default;
+            ledgeSupportMatrix = Matrix4x4.identity;
+        }
+
+        void FollowLedgeSupport()
+        {
+            Transform support = ledgeAnchor.Support;
+            if (support == null) return;
+            Matrix4x4 current = support.localToWorldMatrix;
+            Vector3 localPosition = ledgeSupportMatrix.inverse.MultiplyPoint3x4(transform.position);
+            controller.Move(current.MultiplyPoint3x4(localPosition) - transform.position);
+            ledgeSupportMatrix = current;
+        }
+
+        void FollowWallSupport()
+        {
+            Collider wall = result.Wall.Collider;
+            if (result.Ground.IsGrounded || !result.Wall.IsTouching || wall == null ||
+                !wall.enabled || !wall.gameObject.activeInHierarchy) return;
+            ICharacterMovingPlatform support = wall.GetComponentInParent(
+                typeof(ICharacterMovingPlatform)) as ICharacterMovingPlatform;
+            if (support != null && support.FrameDelta.sqrMagnitude > 0f)
+                controller.Move(support.FrameDelta);
         }
 
         public void ApplyPlayableRootMotion(Vector3 deltaPosition, Quaternion deltaRotation)

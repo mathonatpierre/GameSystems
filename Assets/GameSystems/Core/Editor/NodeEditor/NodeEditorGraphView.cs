@@ -2,8 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using UnityEditor.Experimental.GraphView;
-using UnityEngine;
 using UnityEngine.UIElements;
+using UnityEngine;
 
 namespace GameSystems.Core.Editor.NodeEditor
 {
@@ -15,6 +15,14 @@ namespace GameSystems.Core.Editor.NodeEditor
             Id = id;
             this.title = title;
             viewDataKey = id;
+            style.width = 260f;
+            style.minHeight = 110f;
+            Label titleText = titleContainer.Q<Label>();
+            if (titleText != null)
+            {
+                titleText.style.whiteSpace = WhiteSpace.Normal;
+                titleText.style.unityTextAlign = TextAnchor.MiddleLeft;
+            }
             if (acceptsInput)
             {
                 Input = InstantiatePort(Orientation.Vertical, Direction.Input,
@@ -29,7 +37,7 @@ namespace GameSystems.Core.Editor.NodeEditor
                 Output.portName = string.Empty;
                 outputContainer.Add(Output);
             }
-            SetPosition(new Rect(position, new Vector2(220f, 110f)));
+            SetPosition(new Rect(position, new Vector2(260f, 110f)));
             RefreshExpandedState();
             RefreshPorts();
         }
@@ -37,6 +45,25 @@ namespace GameSystems.Core.Editor.NodeEditor
         public string Id { get; }
         public Port Input { get; }
         public Port Output { get; }
+
+        public void SetTypeVisual(Texture2D icon, Color color)
+        {
+            titleContainer.style.backgroundColor = color;
+            style.borderLeftWidth = 4f;
+            style.borderLeftColor = color;
+            if (icon == null || titleContainer.Q<Image>("node-type-icon") != null) return;
+            var image = new Image
+            {
+                name = "node-type-icon",
+                image = icon,
+                scaleMode = ScaleMode.ScaleToFit
+            };
+            image.style.width = 16f;
+            image.style.height = 16f;
+            image.style.marginLeft = 3f;
+            image.style.marginRight = 5f;
+            titleContainer.Insert(0, image);
+        }
     }
 
     public abstract class NodeEditorGraphView : GraphView

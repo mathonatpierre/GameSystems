@@ -7,21 +7,22 @@ namespace GameSystems.Characters
     {
         public readonly CharacterRuntimeContext Character;
         public readonly CharacterAIController Controller;
+        public readonly CharacterAIBlackboard Blackboard;
         public readonly Transform Target;
         public readonly Vector3 Direction;
         public readonly float Distance;
         public readonly bool HasLineOfSight;
 
         public CharacterAIContext(CharacterRuntimeContext character, CharacterAIController controller,
-            Transform target, bool hasLineOfSight)
+            CharacterAIBlackboard blackboard)
         {
             Character = character;
             Controller = controller;
-            Target = target;
-            Vector3 delta = target != null ? target.position - character.Transform.position : Vector3.zero;
-            Distance = delta.magnitude;
-            Direction = Distance > .0001f ? delta / Distance : Vector3.zero;
-            HasLineOfSight = target != null && hasLineOfSight;
+            Blackboard = blackboard;
+            Target = blackboard?.Target;
+            Distance = blackboard?.Distance ?? 0f;
+            Direction = blackboard?.Direction ?? Vector3.zero;
+            HasLineOfSight = blackboard?.HasLineOfSight == true;
         }
     }
 }

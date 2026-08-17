@@ -61,7 +61,7 @@ namespace GameSystems.VFX
 
         static Bounds CalculateVisibleBounds()
         {
-            Renderer[] renderers = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
+            Renderer[] renderers = FindObjectsByType<Renderer>();
             if (renderers.Length == 0)
                 return new Bounds(Vector3.zero, new Vector3(80f, 20f, 8f));
             Bounds bounds = renderers[0].bounds;

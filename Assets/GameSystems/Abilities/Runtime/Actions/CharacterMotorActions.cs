@@ -72,6 +72,14 @@ namespace GameSystems.Abilities.Actions
             [SerializeReference] GameObjectValue target = new SelfGameObjectValue();
             [SerializeField] float castHeight = 2f;
             [SerializeField, Min(0f)] float castDistance = 6f;
+            public PlaceCharacterOnGroundAction() { }
+            public PlaceCharacterOnGroundAction(GameObjectValue target, float castHeight = 2f,
+                float castDistance = 6f)
+            {
+                this.target = target ?? new SelfGameObjectValue();
+                this.castHeight = castHeight;
+                this.castDistance = castDistance;
+            }
             public override string Summary => $"Place {target?.Summary ?? "character"} on ground";
             public override GameActionRuntime CreateRuntime() => new Runtime();
             sealed class Runtime : InstantActionRuntime
@@ -318,6 +326,22 @@ namespace GameSystems.Abilities.Actions
             float timeout = 2f;
             [SerializeField, Tooltip("Zero motor velocity after arrival or timeout.")]
             bool stopOnComplete = true;
+
+            public GoToTargetAction() { }
+            public GoToTargetAction(GameObjectValue character, GameObjectValue destination,
+                float maximumInput = 1f, float slowDownDistance = 1.1f,
+                float stoppingDistance = .12f, float timeout = 2f,
+                bool stopOnComplete = true)
+            {
+                this.character = new ComponentTarget<CharacterAbilityController>(
+                    character ?? new SelfGameObjectValue(), ComponentSearchScope.InParents);
+                destinationBinding = destination ?? new TargetGameObjectValue();
+                this.maximumInput = Mathf.Clamp01(maximumInput);
+                this.slowDownDistance = Mathf.Max(0f, slowDownDistance);
+                this.stoppingDistance = Mathf.Max(0f, stoppingDistance);
+                this.timeout = Mathf.Max(0f, timeout);
+                this.stopOnComplete = stopOnComplete;
+            }
     
             public override string Summary =>
                 $"Go to {(destination != null ? destination.name : destinationBinding?.Summary ?? "missing target")}";
@@ -449,6 +473,8 @@ namespace GameSystems.Abilities.Actions
             [SerializeField, Min(0f), Tooltip("Acceleration toward the target speed.")] float acceleration = 24f;
             [SerializeField, Min(0f), Tooltip("Deceleration when input is released.")] float deceleration = 32f;
             [SerializeField, Min(0f), Tooltip("Acceleration used when reversing direction.")] float turnAcceleration = 46f;
+            [SerializeField, Min(0f), Tooltip("Airborne acceleration used when reversing direction. Zero uses Turn Acceleration.")]
+            float airTurnAcceleration;
             [SerializeField, Min(0f), Tooltip("Base gravity written to motor commands.")] float gravity = 18.5f;
             [SerializeField, Min(0f), Tooltip("Maximum downward speed.")] float maximumFallSpeed = 24f;
             public float MaximumSpeed => maximumSpeed;
@@ -486,7 +512,8 @@ namespace GameSystems.Abilities.Actions
                     commands.GroundTurnAcceleration = Data.turnAcceleration;
                     commands.AirAcceleration = Data.acceleration;
                     commands.AirDeceleration = Data.deceleration;
-                    commands.AirTurnAcceleration = Data.turnAcceleration;
+                    commands.AirTurnAcceleration = Data.airTurnAcceleration > 0f
+                        ? Data.airTurnAcceleration : Data.turnAcceleration;
                     commands.Gravity = Data.gravity;
                     commands.MaximumFallSpeed = Data.maximumFallSpeed;
                     motor.Commands = commands;
@@ -679,6 +706,31 @@ namespace GameSystems.Abilities.Actions
                 }
             }
         }
+
+    [Serializable]
+        public sealed class SetMotorHorizontalVelocityFromInputAction : GameAction
+        {
+            [SerializeField, Min(0f)] float speed = 4.8f;
+
+            public override string Summary => $"Set motor horizontal velocity from input, speed = {speed:0.##}";
+            public override GameActionRuntime CreateRuntime() => new Runtime();
+
+            sealed class Runtime : InstantActionRuntime
+            {
+                protected override void Execute()
+                {
+                    SetMotorHorizontalVelocityFromInputAction data =
+                        (SetMotorHorizontalVelocityFromInputAction)Definition;
+                    CharacterRuntimeContext character = Context.Get<CharacterRuntimeContext>();
+                    if (character?.Motor is not ICharacterMotorControl motor)
+                    { Fail("Motor cannot be controlled."); return; }
+                    IHorizontalInputProvider input = character.Resolve<IHorizontalInputProvider>();
+                    Vector3 velocity = motor.Velocity;
+                    velocity.x = Mathf.Clamp(input?.Horizontal ?? 0f, -1f, 1f) * data.speed;
+                    motor.SetVelocity(velocity);
+                }
+            }
+        }
     
         [Serializable]
         public sealed class SetMotorVelocityAction : GameAction
@@ -846,7 +898,9 @@ namespace GameSystems.Abilities.Actions
                 protected override bool TickLate()
                 {
                     CharacterMotorResult result = Context.Get<CharacterRuntimeContext>().Motor.Result;
-                    return result.Ground.IsGrounded || !result.Wall.IsTouching;
+                    Collider wall = result.Wall.Collider;
+                    return result.Ground.IsGrounded || !result.Wall.IsTouching || wall == null ||
+                           !wall.enabled || !wall.gameObject.activeInHierarchy;
                 }
             }
         }
@@ -864,6 +918,7 @@ namespace GameSystems.Abilities.Actions
             public override GameActionRuntime CreateRuntime() => new Runtime();
             sealed class Runtime : GameActionRuntime
             {
+                Vector3 horizontalAxis;
                 float outwardDirection;
                 float controlLockRemaining;
                 bool needsImpulse;
@@ -879,7 +934,11 @@ namespace GameSystems.Abilities.Actions
                         wallNormal = ledgeMotor.LedgeAnchor.WallNormal;
                         ledgeMotor.ClearLedgeAnchor();
                     }
-                    outwardDirection = Mathf.Abs(wallNormal.x) > .01f ? Mathf.Sign(wallNormal.x) : -Mathf.Sign(result.Velocity.x);
+                    horizontalAxis = ResolveHorizontalAxis(motor);
+                    float wallDirection = Vector3.Dot(wallNormal, horizontalAxis);
+                    float currentDirection = Vector3.Dot(result.Velocity, horizontalAxis);
+                    outwardDirection = Mathf.Abs(wallDirection) > .01f
+                        ? Mathf.Sign(wallDirection) : -Mathf.Sign(currentDirection);
                     if (Mathf.Approximately(outwardDirection, 0f)) outwardDirection = 1f;
                     controlLockRemaining = Data.horizontalControlLock;
                     needsImpulse = true;
@@ -889,7 +948,17 @@ namespace GameSystems.Abilities.Actions
                     ICharacterMotor motor = Context.Get<CharacterRuntimeContext>().Motor;
                     if (motor == null) { Fail("Missing character motor."); return true; }
                     CharacterMotorCommands commands = motor.Commands;
-                    if (needsImpulse) { commands.HasVerticalOverride = true; commands.VerticalOverride = Data.verticalVelocity; needsImpulse = false; }
+                    if (needsImpulse)
+                    {
+                        float currentHorizontal = Vector3.Dot(motor.Result.Velocity, horizontalAxis);
+                        float targetHorizontal = outwardDirection * Data.horizontalVelocity;
+                        commands.HasHorizontalTarget = false;
+                        commands.AdditiveImpulse += horizontalAxis *
+                                                    (targetHorizontal - currentHorizontal);
+                        commands.HasVerticalOverride = true;
+                        commands.VerticalOverride = Data.verticalVelocity;
+                        needsImpulse = false;
+                    }
                     if (controlLockRemaining > 0f)
                     {
                         commands.HasHorizontalTarget = true;
@@ -900,6 +969,19 @@ namespace GameSystems.Abilities.Actions
                     }
                     motor.Commands = commands;
                     return false;
+                }
+
+                static Vector3 ResolveHorizontalAxis(ICharacterMotor motor)
+                {
+                    Vector3 up = motor is ICharacterGravityFrame gravity
+                        ? gravity.UpDirection : Vector3.up;
+                    if (up.sqrMagnitude < .001f) up = Vector3.up;
+                    up.Normalize();
+                    Vector3 planeNormal = motor is ICharacterMovementPlane plane
+                        ? plane.MovementPlaneNormal : Vector3.forward;
+                    if (planeNormal.sqrMagnitude < .001f) planeNormal = Vector3.forward;
+                    Vector3 axis = Vector3.Cross(up, planeNormal.normalized);
+                    return axis.sqrMagnitude > .001f ? axis.normalized : Vector3.right;
                 }
                 protected override bool TickLate()
                 {

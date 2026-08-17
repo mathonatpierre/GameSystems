@@ -13,6 +13,7 @@ using UnityEditor;
 #endif
 
 using GameSystems.Characters;
+using GameSystems.Characters.AI;
 
 namespace GameSystems.Abilities.Tests
 {
@@ -70,7 +71,7 @@ namespace GameSystems.Abilities.Tests
 
             System.Type surfaceType = System.Type.GetType(
                 "Lennie.Environment.SplineGliderSurface, Assembly-CSharp");
-            Component surface = Object.FindFirstObjectByType(surfaceType) as Component;
+            Component surface = Object.FindAnyObjectByType(surfaceType) as Component;
             Assert.That(surface, Is.Not.Null, "Level 5 contains no spline glider surface.");
             CharacterController characterController = brain.GetComponent<CharacterController>();
             if (characterController != null) characterController.enabled = false;
@@ -138,7 +139,7 @@ namespace GameSystems.Abilities.Tests
             Assert.That(activeSurface, Is.False, "Spline retained its ride session at track end.");
 
             System.Type gemType = System.Type.GetType("Lennie.Environment.GliderGem, Assembly-CSharp");
-            Component gem = Object.FindFirstObjectByType(gemType) as Component;
+            Component gem = Object.FindAnyObjectByType(gemType) as Component;
             Assert.That(gem, Is.Not.Null, "Level 5 contains no collectible gem.");
             CharacterResources resources = brain.GetComponent<CharacterResources>();
             ResourceDefinition gemResource = AssetDatabase.LoadAssetAtPath<ResourceDefinition>(
@@ -166,6 +167,244 @@ namespace GameSystems.Abilities.Tests
             FeedbackTime.ReleaseAll(owner);
             Assert.That(Time.timeScale, Is.EqualTo(1f).Within(.001f));
             yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator TitleAI_RecoversToGroundAfterExternalBounce()
+        {
+            yield return SceneManager.LoadSceneAsync(0, LoadSceneMode.Single);
+            yield return null;
+            HookId playerHook = AssetDatabase.LoadAssetAtPath<HookId>(
+                "Assets/Lennie/Data/Identity/HOOK_Player.asset");
+            CharacterAbilityController brain = HookRegistry.GetComponent<CharacterAbilityController>(playerHook);
+            CharacterAIController ai = brain != null ? brain.GetComponent<CharacterAIController>() : null;
+            Assert.That(ai, Is.Not.Null, "Title Lennie is not controlled by CharacterAIController.");
+
+            float groundDeadline = Time.realtimeSinceStartup + 3f;
+            while (!brain.Motor.Result.Ground.IsGrounded && Time.realtimeSinceStartup < groundDeadline)
+                yield return null;
+            Assert.That(brain.Motor.Result.Ground.IsGrounded, Is.True);
+
+            AbilityDefinition bounce = Find(brain.AbilitySet, "Bounce");
+            var externalSource = new GameObject("TEST_ExternalBounceSource");
+            float minimumSafeY = brain.transform.position.y - 7f;
+            Assert.That(brain.Request(bounce, externalSource, 7.8f), Is.True,
+                "External bounce request was rejected.");
+
+            float landingDeadline = Time.realtimeSinceStartup + 4.5f;
+            bool launched = false;
+            bool airborneObserved = false;
+            while (Time.realtimeSinceStartup < landingDeadline)
+            {
+                launched |= brain.Motor.Result.Velocity.y > 1f;
+                airborneObserved |= launched && !brain.Motor.Result.Ground.IsGrounded;
+                if (airborneObserved && brain.Motor.Result.Ground.IsGrounded) break;
+                Assert.That(brain.transform.position.y, Is.GreaterThan(minimumSafeY),
+                    "Title AI fell below the generated course after a bounce.");
+                yield return null;
+            }
+            Object.Destroy(externalSource);
+            Assert.That(launched, Is.True, "Bounce never launched Title Lennie.");
+            Assert.That(airborneObserved, Is.True, "Bounce never produced an airborne motor state.");
+            Assert.That(brain.Motor.Result.Ground.IsGrounded, Is.True,
+                "Title AI did not recover to a grounded landing after the bounce.");
+        }
+
+        [UnityTest]
+        public IEnumerator TitleAI_UsesOnePlannedJumpForNearbyEnemy()
+        {
+            yield return SceneManager.LoadSceneAsync(0, LoadSceneMode.Single);
+            yield return null;
+            HookId playerHook = AssetDatabase.LoadAssetAtPath<HookId>(
+                "Assets/Lennie/Data/Identity/HOOK_Player.asset");
+            CharacterAbilityController brain = HookRegistry.GetComponent<CharacterAbilityController>(playerHook);
+            CharacterAIController ai = brain.GetComponent<CharacterAIController>();
+            CharacterAbilityController enemy = Object.FindObjectsByType<CharacterAbilityController>()
+                .FirstOrDefault(value => value != brain && value.AbilitySet != null &&
+                    value.AbilitySet.name == "ABILITYSET_ConcreteBall");
+            Assert.That(enemy, Is.Not.Null, "Title has no Concrete Ball for the approach test.");
+
+            float groundedDeadline = Time.realtimeSinceStartup + 3f;
+            while ((!brain.Motor.Result.Ground.IsGrounded || !enemy.Motor.Result.Ground.IsGrounded) &&
+                   Time.realtimeSinceStartup < groundedDeadline)
+                yield return null;
+            ai.enabled = false;
+            brain.transform.position = new Vector3(enemy.transform.position.x - 1.65f,
+                enemy.transform.position.y, enemy.transform.position.z);
+            yield return null;
+
+            int jumps = 0;
+            bool bounced = false;
+            float bounceX = 0f;
+            int jumpsAtBounce = 0;
+            var jumpSources = new System.Collections.Generic.HashSet<string>();
+            var jumpNodes = new System.Collections.Generic.HashSet<string>();
+            string bounceSource = null;
+            void Observe(AbilityRequest request, AbilityRequestResult result)
+            {
+                if (result != AbilityRequestResult.Accepted || request.Ability == null) return;
+                if (request.Ability.name == "ABILITY_Jump_Modular")
+                { jumps++; jumpSources.Add(request.Source != null ? request.Source.GetType().Name : "null");
+                    jumpNodes.Add(ai.CurrentBehavior ?? "none"); }
+                if (request.Ability.name == "ABILITY_Bounce")
+                { bounced = true; bounceX = brain.transform.position.x; jumpsAtBounce = jumps;
+                    bounceSource = request.Source != null ? request.Source.GetType().Name : "null"; }
+            }
+            brain.RequestResolved += Observe;
+            ai.enabled = true;
+            float deadline = Time.realtimeSinceStartup + 3f;
+            while (!bounced && Time.realtimeSinceStartup < deadline) yield return null;
+            float recoveryDeadline = Time.realtimeSinceStartup + .6f;
+            float furthestAfterBounce = brain.transform.position.x;
+            while (Time.realtimeSinceStartup < recoveryDeadline)
+            {
+                furthestAfterBounce = Mathf.Max(furthestAfterBounce, brain.transform.position.x);
+                yield return null;
+            }
+            brain.RequestResolved -= Observe;
+            AbilityDefinition bounceAbility = AssetDatabase.LoadAssetAtPath<AbilityDefinition>(
+                "Assets/Lennie/Data/Characters/Lennie/ABILITY_Bounce.asset");
+            bool rememberedBounce = brain.WasAcceptedRecently(bounceAbility, 1.2f);
+            float bounceAge = brain.GetAcceptedAge(bounceAbility);
+            BehaviorNodeRuntimeState finishBounceState = ai.BehaviorRuntime.States.FirstOrDefault(pair =>
+                ai.Definition.BehaviorTree.Find(pair.Key)?.Title == "Finish current bounce").Value;
+
+            Assert.That(jumps, Is.EqualTo(1),
+                $"Nearby enemy approach requested {jumps} jumps instead of one planned jump " +
+                $"({jumpsAtBounce} before bounce, {jumps - jumpsAtBounce} after), " +
+                $"sources=[{string.Join(", ", jumpSources)}], bounceSource={bounceSource}, remembered={rememberedBounce}, " +
+                $"nodes=[{string.Join(", ", jumpNodes)}], age={bounceAge:0.###}, " +
+                $"finishState={finishBounceState?.Status}." );
+            Assert.That(bounced, Is.True,
+                "The planned enemy jump did not reach the Concrete Ball.");
+            Assert.That(furthestAfterBounce, Is.GreaterThan(bounceX + .35f),
+                $"Lennie did not resume rightward travel after the bounce: " +
+                $"bounceX={bounceX:0.##}, furthest={furthestAfterBounce:0.##}, " +
+                $"velocity={brain.Motor.Result.Velocity}, horizontal={ai.Horizontal:0.##}.");
+        }
+
+        [UnityTest]
+        public IEnumerator TitleAI_ExecutesWallJumpAndGliderTraversals()
+        {
+            yield return SceneManager.LoadSceneAsync(0, LoadSceneMode.Single);
+            yield return null;
+            HookId playerHook = AssetDatabase.LoadAssetAtPath<HookId>(
+                "Assets/Lennie/Data/Identity/HOOK_Player.asset");
+            CharacterAbilityController brain = HookRegistry.GetComponent<CharacterAbilityController>(playerHook);
+            Assert.That(brain?.GetComponent<CharacterAIController>(), Is.Not.Null);
+
+            bool wallJumpAccepted = false;
+            bool glideAccepted = false;
+            bool wallConditionSucceeded = false;
+            bool wallEntryConditionSucceeded = false;
+            bool bounceRecoveryConditionSucceeded = false;
+            bool bounceRecoveryPlanned = false;
+            int bounceCount = 0;
+            Vector3 bounceVelocity = default;
+            var accepted = new System.Collections.Generic.HashSet<string>();
+            float startX = brain.transform.position.x;
+            float maximumX = startX;
+            void Observe(AbilityRequest request, AbilityRequestResult result)
+            {
+                if (result != AbilityRequestResult.Accepted || request.Ability == null) return;
+                accepted.Add(request.Ability.name);
+                if (request.Ability.name == "ABILITY_Bounce")
+                { bounceCount++; bounceVelocity = brain.Motor.Result.Velocity; }
+                wallJumpAccepted |= request.Ability.name == "ABILITY_WallJump";
+                glideAccepted |= request.Ability.name == "ABILITY_Glide";
+            }
+            brain.RequestResolved += Observe;
+            float deadline = Time.realtimeSinceStartup + 40f;
+            while (Time.realtimeSinceStartup < deadline && (!wallJumpAccepted || !glideAccepted))
+            {
+                maximumX = Mathf.Max(maximumX, brain.transform.position.x);
+                CharacterAIController controller = brain.GetComponent<CharacterAIController>();
+                foreach (System.Collections.Generic.KeyValuePair<string, BehaviorNodeRuntimeState> state
+                         in controller.BehaviorRuntime.States)
+                    if (controller.Definition.BehaviorTree.Find(state.Key)?.Title == "Wall jump available" &&
+                        state.Value.Status == BehaviorStatus.Success)
+                        wallConditionSucceeded = true;
+                    else if (controller.Definition.BehaviorTree.Find(state.Key)?.Title == "Grounded at wall" &&
+                             state.Value.Status == BehaviorStatus.Success)
+                        wallEntryConditionSucceeded = true;
+                    else if (controller.Definition.BehaviorTree.Find(state.Key)?.Title == "Recent airborne bounce" &&
+                             state.Value.Status == BehaviorStatus.Success)
+                        bounceRecoveryConditionSucceeded = true;
+                    else if (controller.Definition.BehaviorTree.Find(state.Key)?.Title == "Plan forward landing" &&
+                             state.Value.Status == BehaviorStatus.Success)
+                        bounceRecoveryPlanned = true;
+                yield return null;
+            }
+            brain.RequestResolved -= Observe;
+            CharacterMotorResult finalMotor = brain.Motor.Result;
+            CharacterAIController finalAI = brain.GetComponent<CharacterAIController>();
+            bool hasLanding = finalAI.Blackboard.Traversal.TryGetLandingX(brain, out float landingX);
+            bool ledgeAnchored = brain.Motor is ICharacterLedgeMotor ledge && ledge.IsLedgeAnchored;
+            Assert.That(wallJumpAccepted, Is.True,
+                $"Title AI never executed a wall-jump traversal. " +
+                $"conditionSucceeded={wallConditionSucceeded}, entrySucceeded={wallEntryConditionSucceeded}, " +
+                $"bounceCondition={bounceRecoveryConditionSucceeded}, bouncePlanned={bounceRecoveryPlanned}, " +
+                $"bounceCount={bounceCount}, target={brain.GetComponent<CharacterAIController>().CurrentTarget?.name}, " +
+                $"bounceVelocity={bounceVelocity}, " +
+                $"horizontal={finalAI.Horizontal:0.##}, " +
+                $"landing={(hasLanding ? landingX.ToString("0.##") : "none")}, " +
+                $"position={brain.transform.position}, travelled={maximumX - startX:0.##}, " +
+                $"grounded={finalMotor.Ground.IsGrounded}, wall={finalMotor.Wall.IsTouching}, " +
+                $"wallHeight={finalMotor.Wall.Height01:0.##}, velocity={finalMotor.Velocity}, " +
+                $"airTime={finalMotor.AirTime:0.##}, ledge={ledgeAnchored}, " +
+                $"accepted=[{string.Join(", ", accepted)}].");
+            Assert.That(glideAccepted, Is.True,
+                "Title AI never engaged the glider traversal.");
+        }
+
+        [UnityTest]
+        public IEnumerator Title_GeneratesContinuouslyByChunk()
+        {
+            yield return SceneManager.LoadSceneAsync(0, LoadSceneMode.Single);
+            yield return null;
+            MonoBehaviour infinite = Object.FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None)
+                .FirstOrDefault(component => component.GetType().Name == "InfiniteLevelGenerator");
+            Assert.That(infinite, Is.Not.Null, "Title has no infinite level generator.");
+
+            System.Type type = infinite.GetType();
+            System.Reflection.PropertyInfo countProperty = type.GetProperty("TotalGeneratedChunkCount");
+            System.Reflection.PropertyInfo currentProperty = type.GetProperty("CurrentChunk");
+            Assert.That(countProperty, Is.Not.Null);
+            Assert.That(currentProperty, Is.Not.Null);
+
+            HookId playerHook = AssetDatabase.LoadAssetAtPath<HookId>(
+                "Assets/Lennie/Data/Identity/HOOK_Player.asset");
+            CharacterAbilityController brain = HookRegistry.GetComponent<CharacterAbilityController>(playerHook);
+            CharacterAIController ai = brain.GetComponent<CharacterAIController>();
+            ai.enabled = false;
+
+            for (int expected = 2; expected <= 3; expected++)
+            {
+                float readyDeadline = Time.realtimeSinceStartup + 4f;
+                while ((int)countProperty.GetValue(infinite) < expected &&
+                       Time.realtimeSinceStartup < readyDeadline)
+                    yield return null;
+                Assert.That((int)countProperty.GetValue(infinite), Is.GreaterThanOrEqualTo(expected));
+
+                object generator = currentProperty.GetValue(infinite);
+                object chunk = generator.GetType().GetProperty("GeneratedChunk")?.GetValue(generator);
+                Transform end = chunk?.GetType().GetProperty("GroundEnd")?.GetValue(chunk) as Transform;
+                Assert.That(end, Is.Not.Null, "Current streamed chunk has no end anchor.");
+                float generationDeadline = Time.realtimeSinceStartup + 4f;
+                while ((int)countProperty.GetValue(infinite) == expected &&
+                       Time.realtimeSinceStartup < generationDeadline)
+                {
+                    brain.transform.position = end.position - Vector3.right * 1f + Vector3.up * 1f;
+                    yield return null;
+                }
+            }
+
+            float finalDeadline = Time.realtimeSinceStartup + 4f;
+            while ((int)countProperty.GetValue(infinite) < 4 &&
+                   Time.realtimeSinceStartup < finalDeadline)
+                yield return null;
+            Assert.That((int)countProperty.GetValue(infinite), Is.GreaterThanOrEqualTo(4),
+                "Title stopped streaming after the first generated chunk.");
         }
 
         [UnityTest]
@@ -215,12 +454,12 @@ namespace GameSystems.Abilities.Tests
                 float moved = Mathf.Abs(positions[i].x - ai.transform.position.x);
                 Debug.Log($"[Ball Diagnostic] {ai.name}: movedX={moved:0.###}, " +
                     $"grounded={brain.Motor.Result.Ground.IsGrounded}, velocity={brain.Motor.Result.Velocity}, " +
-                    $"decision={ai.CurrentDecision?.Label ?? "none"}, current={player.Current?.name ?? "none"}, " +
+                    $"behavior={ai.CurrentBehavior ?? "none"}, current={player.Current?.name ?? "none"}, " +
                     $"evaluations={player.EvaluationCount}, applied={player.Context.GetFloat("ProceduralAppliedRotation"):0.##}, " +
                     $"bounds=[{area?.MinimumX:0.##},{area?.MaximumX:0.##}]");
                 Assert.That(moved, Is.GreaterThan(.05f),
                     $"{ai.name}: moved={moved:0.###}, grounded={brain.Motor.Result.Ground.IsGrounded}, " +
-                    $"velocity={brain.Motor.Result.Velocity}, decision={ai.CurrentDecision?.Label ?? "none"}, " +
+                    $"velocity={brain.Motor.Result.Velocity}, behavior={ai.CurrentBehavior ?? "none"}, " +
                     $"bounds=[{area?.MinimumX:0.##},{area?.MaximumX:0.##}]");
                 Assert.That(player.Context.GetFloat("ProceduralAppliedRotation"), Is.GreaterThan(2f),
                     $"{ai.name}: procedural Body did not receive a visible rotation; velocity={brain.Motor.Result.Velocity}");
@@ -288,7 +527,7 @@ namespace GameSystems.Abilities.Tests
             Transform concreteBody = concreteBallBrain.GetComponent<PlayableAnimationBindings>().Resolve("Body");
             float concreteBallStartX = concreteBallAI.transform.position.x;
             yield return new WaitForSecondsRealtime(.35f);
-            Assert.That(concreteBallAI.CurrentDecision?.Label, Is.EqualTo("Patrol"),
+            Assert.That(concreteBallAI.CurrentBehavior, Is.EqualTo("Patrol"),
                 "Concrete Ball AI did not select Patrol.");
             Assert.That(Mathf.Abs(concreteBallAI.transform.position.x - concreteBallStartX), Is.GreaterThan(.005f),
                 "Concrete Ball Patrol ability did not move its CharacterController motor.");

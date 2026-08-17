@@ -17,7 +17,7 @@ namespace GameSystems.Abilities.Editor
             EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField("Runtime", EditorStyles.boldLabel);
             EditorGUILayout.ObjectField("Target", controller.CurrentTarget, typeof(Transform), true);
-            EditorGUILayout.LabelField("Decision", controller.CurrentDecision?.Label ?? "None");
+            EditorGUILayout.LabelField("Behavior", controller.CurrentBehavior ?? "None");
             EditorGUILayout.LabelField("Distance", controller.LastContext.Distance.ToString("0.00"));
             EditorGUILayout.Toggle("Line Of Sight", controller.LastContext.HasLineOfSight);
             Repaint();

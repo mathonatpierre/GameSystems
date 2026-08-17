@@ -49,6 +49,51 @@ namespace GameSystems.Characters.AI
 
         public void SetRoot(string id) => rootId = Find(id) != null ? id : rootId;
 
+        public void AutoLayout(float horizontalSpacing = 380f, float verticalSpacing = 260f)
+        {
+            var widths = new Dictionary<string, float>();
+            var visiting = new HashSet<string>();
+            float Measure(string id)
+            {
+                if (string.IsNullOrEmpty(id) || Find(id) == null) return 0f;
+                if (widths.TryGetValue(id, out float cached)) return cached;
+                if (!visiting.Add(id)) return 1f;
+                float width = 0f;
+                if (Find(id) is BehaviorCompositeNode composite)
+                    for (int i = 0; i < composite.Children.Count; i++)
+                        width += Measure(composite.Children[i]);
+                visiting.Remove(id);
+                return widths[id] = Mathf.Max(1f, width);
+            }
+
+            var positioned = new HashSet<string>();
+            void Place(string id, float left, int depth)
+            {
+                BehaviorNode node = Find(id);
+                if (node == null || !positioned.Add(id)) return;
+                float width = Measure(id);
+                node.SetEditorPosition(new Vector2(80f + (left + width * .5f) * horizontalSpacing,
+                    80f + depth * verticalSpacing));
+                if (node is not BehaviorCompositeNode composite) return;
+                float childLeft = left;
+                for (int i = 0; i < composite.Children.Count; i++)
+                {
+                    string child = composite.Children[i];
+                    Place(child, childLeft, depth + 1);
+                    childLeft += Measure(child);
+                }
+            }
+
+            Place(rootId, 0f, 0);
+            float detachedLeft = Measure(rootId) + 1f;
+            for (int i = 0; i < Nodes.Length; i++)
+                if (Nodes[i] != null && !positioned.Contains(Nodes[i].Id))
+                {
+                    Place(Nodes[i].Id, detachedLeft, 0);
+                    detachedLeft += Measure(Nodes[i].Id) + 1f;
+                }
+        }
+
         public BehaviorNode Find(string id)
         {
             if (string.IsNullOrEmpty(id)) return null;
@@ -156,7 +201,7 @@ namespace GameSystems.Characters.AI
         public CharacterAIContext AI { get; }
         public double Now { get; }
         public GameActionContext Actions => new(AI.Character.Owner, AI,
-            AI.Character, AI.Controller);
+            AI.Character, AI.Controller, Runtime);
         public BehaviorStatus Tick(string id) => Runtime.Tick(id, this);
         public BehaviorNodeRuntimeState State(string id) => Runtime.State(id);
     }
@@ -171,12 +216,16 @@ namespace GameSystems.Characters.AI
 
         public string Id => id;
         public virtual string Title => string.IsNullOrWhiteSpace(title) ? GetType().Name : title;
+        public virtual string Kind => "NODE";
+        public virtual string Detail => string.Empty;
+        public string EditorLabel => $"{Kind} · {Title}";
         public Vector2 EditorPosition => editorPosition;
         public string LastMessage => lastMessage;
         public abstract BehaviorStatus Tick(in BehaviorTreeContext context);
 
         public void SetEditorData(string value, Vector2 position)
         { title = value; editorPosition = position; }
+        public void SetEditorPosition(Vector2 position) => editorPosition = position;
 
         protected BehaviorStatus Fail(string message)
         { lastMessage = message; return BehaviorStatus.Failure; }
@@ -196,6 +245,8 @@ namespace GameSystems.Characters.AI
     [Serializable]
     public sealed class SelectorBehaviorNode : BehaviorCompositeNode
     {
+        public override string Kind => "SELECTOR";
+        public override string Detail => "First successful child";
         public override BehaviorStatus Tick(in BehaviorTreeContext context)
         {
             IReadOnlyList<string> children = Children;
@@ -211,6 +262,8 @@ namespace GameSystems.Characters.AI
     [Serializable]
     public sealed class SequenceBehaviorNode : BehaviorCompositeNode
     {
+        public override string Kind => "SEQUENCE";
+        public override string Detail => "Children in order";
         public override BehaviorStatus Tick(in BehaviorTreeContext context)
         {
             IReadOnlyList<string> children = Children;
@@ -226,6 +279,8 @@ namespace GameSystems.Characters.AI
     [Serializable]
     public sealed class InverterBehaviorNode : BehaviorCompositeNode
     {
+        public override string Kind => "INVERTER";
+        public override string Detail => "Invert child result";
         public override BehaviorStatus Tick(in BehaviorTreeContext context)
         {
             if (Children.Count != 1) return Fail("Inverter requires one child");
@@ -239,6 +294,31 @@ namespace GameSystems.Characters.AI
     }
 
     [Serializable]
+    public sealed class CooldownBehaviorNode : BehaviorCompositeNode
+    {
+        [SerializeField, Min(0f)] float duration = 1f;
+
+        public CooldownBehaviorNode Configure(float value)
+        {
+            duration = Mathf.Max(0f, value);
+            return this;
+        }
+
+        public override string Kind => "COOLDOWN";
+        public override string Detail => $"Run child at most every {duration:0.###} seconds";
+
+        public override BehaviorStatus Tick(in BehaviorTreeContext context)
+        {
+            if (Children.Count != 1) return Fail("Cooldown requires one child");
+            BehaviorNodeRuntimeState state = context.State(Id);
+            if (context.Now < state.Time) return Fail("Cooldown");
+            BehaviorStatus status = context.Tick(Children[0]);
+            if (status == BehaviorStatus.Success) state.Time = context.Now + duration;
+            return Result(status);
+        }
+    }
+
+    [Serializable]
     public sealed class ConditionBehaviorNode : BehaviorNode
     {
         [SerializeField] GameConditionMode mode = GameConditionMode.All;
@@ -247,6 +327,20 @@ namespace GameSystems.Characters.AI
 
         public ConditionBehaviorNode Configure(params GameCondition[] values)
         { conditions = values ?? Array.Empty<GameCondition>(); return this; }
+        public override string Kind => "CONDITION";
+        public override string Detail
+        {
+            get
+            {
+                GameCondition[] values = Conditions;
+                if (values.Length == 0) return "No conditions";
+                string separator = mode == GameConditionMode.All ? " + " : " / ";
+                var labels = new string[values.Length];
+                for (int i = 0; i < values.Length; i++)
+                    labels[i] = values[i]?.Summary ?? "Missing";
+                return string.Join(separator, labels);
+            }
+        }
 
         public override BehaviorStatus Tick(in BehaviorTreeContext context)
         {
@@ -257,30 +351,11 @@ namespace GameSystems.Characters.AI
     }
 
     [Serializable]
-    public sealed class RequestAbilityBehaviorNode : BehaviorNode
-    {
-        [SerializeField] AbilityDefinition ability;
-        [SerializeField, Min(0f)] float minimumInterval;
-        public AbilityDefinition Ability => ability;
-
-        public RequestAbilityBehaviorNode Configure(AbilityDefinition value, float interval = 0f)
-        { ability = value; minimumInterval = Mathf.Max(0f, interval); return this; }
-
-        public override BehaviorStatus Tick(in BehaviorTreeContext context)
-        {
-            if (ability == null) return Fail("Missing ability");
-            BehaviorNodeRuntimeState state = context.State(Id);
-            if (context.Now < state.Time) return Fail("Cooldown");
-            state.Time = context.Now + minimumInterval;
-            context.Runtime.Request(ability);
-            return Result(BehaviorStatus.Success);
-        }
-    }
-
-    [Serializable]
     public sealed class WaitBehaviorNode : BehaviorNode
     {
         [SerializeField, Min(0f)] float duration = .25f;
+        public override string Kind => "WAIT";
+        public override string Detail => $"{duration:0.###} seconds";
         public WaitBehaviorNode Configure(float value)
         { duration = Mathf.Max(0f, value); return this; }
 
@@ -298,6 +373,11 @@ namespace GameSystems.Characters.AI
     public sealed class ActionSequenceBehaviorNode : BehaviorNode
     {
         [SerializeReference] GameAction[] actions = Array.Empty<GameAction>();
+        public GameAction[] Actions => actions ?? Array.Empty<GameAction>();
+        public ActionSequenceBehaviorNode Configure(params GameAction[] values)
+        { actions = values ?? Array.Empty<GameAction>(); return this; }
+        public override string Kind => "ACTIONS";
+        public override string Detail => $"{actions?.Length ?? 0} actions";
         public override BehaviorStatus Tick(in BehaviorTreeContext context)
         {
             BehaviorNodeRuntimeState state = context.State(Id);
@@ -323,6 +403,8 @@ namespace GameSystems.Characters.AI
     public sealed class SubTreeBehaviorNode : BehaviorNode
     {
         [SerializeField] CharacterBehaviorTree tree;
+        public override string Kind => "SUBTREE";
+        public override string Detail => tree != null ? tree.name : "Missing tree";
         public override BehaviorStatus Tick(in BehaviorTreeContext context)
         {
             if (tree == null) return Fail("Missing subtree");

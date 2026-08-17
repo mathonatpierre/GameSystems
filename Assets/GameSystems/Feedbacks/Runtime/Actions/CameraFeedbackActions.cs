@@ -21,7 +21,7 @@ namespace GameSystems.Feedbacks.Actions
             {
                 AddCameraShakeAction data = (AddCameraShakeAction)Definition;
                 MonoBehaviour[] behaviours = UnityEngine.Object.FindObjectsByType<MonoBehaviour>(
-                    FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+                    FindObjectsInactive.Exclude);
                 for (int i = 0; i < behaviours.Length; i++)
                     if (behaviours[i] is ICameraShakeReceiver receiver)
                     { receiver.AddImpactShake(data.amplitude * FeedbackActionUtility.Intensity(Context), data.duration); return; }

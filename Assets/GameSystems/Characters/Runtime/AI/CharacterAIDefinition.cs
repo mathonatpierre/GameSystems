@@ -1,4 +1,3 @@
-using System;
 using UnityEngine;
 using GameSystems.Hooks;
 using UnityEngine.Scripting.APIUpdating;
@@ -15,25 +14,26 @@ namespace GameSystems.Characters
         [SerializeField, Tooltip("Optional stable identity used as this AI's primary target.")]
         HookId targetHook;
         [SerializeField] LayerMask lineOfSightMask = ~0;
+        [SerializeField, Range(-1f, 1f), Tooltip("Fixed traversal direction. Zero follows the current target.")]
+        float traversalDirection;
         [SerializeField] CharacterAITraversalSettings traversal = new();
         [SerializeField] CharacterBehaviorTree behaviorTree;
-        [SerializeField] CharacterAIDecision[] decisions;
 
         public float DecisionInterval => Mathf.Max(.01f, decisionInterval);
         public float DetectionRadius => detectionRadius;
         public HookId TargetHook => targetHook;
         public LayerMask LineOfSightMask => lineOfSightMask;
+        public float TraversalDirection => Mathf.Sign(traversalDirection);
         public CharacterAITraversalSettings Traversal => traversal ??= new CharacterAITraversalSettings();
         public CharacterBehaviorTree BehaviorTree => behaviorTree;
-        public CharacterAIDecision[] Decisions => decisions ?? Array.Empty<CharacterAIDecision>();
 
         public void Configure(float interval, float radius, HookId target,
-            CharacterAIDecision[] values)
+            float direction = 0f)
         {
             decisionInterval = Mathf.Max(.01f, interval);
             detectionRadius = Mathf.Max(0f, radius);
             targetHook = target;
-            decisions = values ?? Array.Empty<CharacterAIDecision>();
+            traversalDirection = Mathf.Clamp(direction, -1f, 1f);
         }
 
         public void ConfigureBehaviorTree(CharacterBehaviorTree tree) => behaviorTree = tree;

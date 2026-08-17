@@ -285,7 +285,11 @@ namespace GameSystems.Camera
                 basePosition = transform.position;
                 hasBasePosition = true;
             }
-            transitionPosition = basePosition;
+            // Begin from the pose that was actually rendered. basePosition intentionally
+            // excludes transient safety framing and shake offsets, so using it here caused
+            // a visible one-frame snap whenever a higher-priority framing took over.
+            transitionPosition = transform.position;
+            basePosition = transitionPosition;
             transitionRotation = transform.rotation;
             transitionFov = controlledCamera != null ? controlledCamera.fieldOfView : 60f;
             activeDefinition = definition;

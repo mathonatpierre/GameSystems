@@ -30,8 +30,6 @@ namespace GameSystems.VFX
         [Header("Ground Shape")]
         [SerializeField, Range(0.01f, 0.25f)] float groundNoiseScale = 0.075f;
         [SerializeField, Range(0, 5)] int groundRoughness = 3;
-        [SerializeField, Range(0f, 0.45f)] float groundErosion = 0.1f;
-
         [Header("Rising Structures")]
         [SerializeField, Range(0f, 1f)] float structureDensity = 0.48f;
         [SerializeField, Range(2f, 20f)] float nearStructureHeight = 5f;

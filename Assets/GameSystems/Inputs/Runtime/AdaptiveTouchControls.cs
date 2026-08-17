@@ -21,7 +21,7 @@ namespace GameSystems.Inputs
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Create()
         {
-            if (FindFirstObjectByType<AdaptiveTouchControls>() != null) return;
+            if (FindAnyObjectByType<AdaptiveTouchControls>() != null) return;
             var host = new GameObject("Adaptive Touch Controls");
             DontDestroyOnLoad(host);
             host.AddComponent<AdaptiveTouchControls>();
@@ -60,8 +60,8 @@ namespace GameSystems.Inputs
 
         void RefreshVisibility()
         {
-            bool hasPlayableCharacter = FindFirstObjectByType<GameSystems.Characters.PlayerAbilityInputSource>() != null;
-            bool hasTouch = Application.isMobilePlatform || Input.touchSupported || Touchscreen.current != null;
+            bool hasPlayableCharacter = FindAnyObjectByType<GameSystems.Characters.PlayerAbilityInputSource>() != null;
+            bool hasTouch = Application.isMobilePlatform || Touchscreen.current != null;
             bool hasPhysicalGamepad = Gamepad.all.Any(gamepad => gamepad.native);
             canvas.gameObject.SetActive(hasPlayableCharacter && hasTouch && !keyboardInUse && !hasPhysicalGamepad);
         }
@@ -180,7 +180,7 @@ namespace GameSystems.Inputs
 
         void EnsureEventSystem()
         {
-            EventSystem events = FindFirstObjectByType<EventSystem>();
+            EventSystem events = FindAnyObjectByType<EventSystem>();
             if (events == null)
                 events = new GameObject("EventSystem", typeof(EventSystem)).GetComponent<EventSystem>();
             if (events.transform.parent != transform) events.transform.SetParent(transform, false);
